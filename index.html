@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>COOP Member App</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #f5f7fb; color: #172033; }
+      main { max-width: 920px; margin: 0 auto; padding: 32px 16px; }
+      section { background: white; border: 1px solid #dde3ee; border-radius: 14px; padding: 20px; margin-bottom: 18px; box-shadow: 0 8px 24px rgba(20, 32, 51, 0.06); }
+      label { display: block; margin: 12px 0 6px; font-weight: 700; }
+      input, select, button { width: 100%; box-sizing: border-box; padding: 11px 12px; border-radius: 10px; border: 1px solid #c8d1df; font: inherit; }
+      button { margin-top: 16px; background: #165dff; color: white; border: 0; cursor: pointer; font-weight: 700; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 10px; border-bottom: 1px solid #e5e9f0; text-align: left; }
+      .status { font-weight: 700; text-transform: capitalize; }
+      .message { margin-top: 10px; min-height: 22px; }
+      @media (max-width: 640px) { table, thead, tbody, th, td, tr { display: block; } th { display: none; } td { border: 0; padding: 6px 0; } tr { border-bottom: 1px solid #e5e9f0; padding: 10px 0; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>COOP Member App</h1>
+      <p>Submit a loan application here and it will appear in the admin website through the shared backend and database.</p>
+
+      <section>
+        <h2>New Loan Application</h2>
+        <form id="loan-form">
+          <label for="name">Applicant name</label>
+          <input id="name" name="applicantName" required>
+
+          <label for="amount">Amount</label>
+          <input id="amount" name="amount" type="number" min="1" step="0.01" required>
+
+          <label for="purpose">Loan type</label>
+          <select id="purpose" name="purpose">
+            <option>Regular</option>
+            <option>Medical</option>
+            <option>Educational</option>
+            <option>Emergency</option>
+            <option>Business</option>
+          </select>
+
+          <button type="submit">Submit Application</button>
+          <div id="message" class="message"></div>
+        </form>
+      </section>
+
+      <section>
+        <h2>Recent Applications</h2>
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Type</th><th>Amount</th><th>Status</th></tr>
+          </thead>
+          <tbody id="applications"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const API_BASE_URL = window.API_BASE_URL || 'http://localhost:5000';
+      const form = document.querySelector('#loan-form');
+      const message = document.querySelector('#message');
+      const applications = document.querySelector('#applications');
+
+      function peso(value) {
+        return Number(value).toLocaleString('en-PH', { style: 'currency', currency: 'PHP' });
+      }
+
+      async function loadApplications() {
+        const response = await fetch(`${API_BASE_URL}/api/loan-applications`);
+        const data = await response.json();
+        applications.innerHTML = data.map((application) => `
+          <tr>
+            <td>${application.applicantName}</td>
+            <td>${application.purpose}</td>
+            <td>${peso(application.amount)}</td>
+            <td class="status">${application.status}</td>
+          </tr>
+        `).join('');
+      }
+
+      function getLoginErrorMessage(error) {
+        const message = String(error && error.message ? error.message : error).toLowerCase();
+
+        if (message.includes('invalid_credentials') || message.includes('invalid login credential')) {
+          return 'No account found or the password is incorrect.';
+        }
+
+        if (message.includes('email not confirmed')) {
+          return 'Please confirm your email before logging in.';
+        }
+
+        return 'Login failed. Please try again.';
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        message.textContent = 'Submitting...';
+        const formData = new FormData(form);
+
+        const response = await fetch(`${API_BASE_URL}/api/loan-applications`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            applicantName: formData.get('applicantName'),
+            amount: Number(formData.get('amount')),
+            purpose: formData.get('purpose'),
+            status: 'pending',
+          }),
+        });
+
+        if (!response.ok) {
+          message.textContent = 'Could not submit the application. Check that the backend is running.';
+          return;
+        }
+
+        form.reset();
+        message.textContent = 'Application submitted.';
+        await loadApplications();
+      });
+
+      loadApplications().catch(() => {
+        applications.innerHTML = '<tr><td colspan="4">Start the backend API to load applications.</td></tr>';
+      });
+    </script>
+  </body>
+</html>
