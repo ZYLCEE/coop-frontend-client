@@ -10,6 +10,14 @@ import 'package:coop_frontend/security/quick_access_service.dart';
 import 'support/quick_access_fakes.dart';
 
 void main() {
+  Future<void> enterUnlockPin(WidgetTester tester, String pin) async {
+    for (final digit in pin.split('')) {
+      await tester.tap(find.text(digit));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+  }
+
   testWidgets(
     'A restored session requiring a password change opens setup after local unlock',
     (tester) async {
@@ -38,9 +46,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '1234');
-      await tester.tap(find.text('Unlock'));
-      await tester.pumpAndSettle();
+      await enterUnlockPin(tester, '1234');
       expect(find.byType(ConfirmPassScreen), findsOneWidget);
       expect(find.byType(QuickUnlockScreen), findsNothing);
     },
@@ -210,9 +216,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(QuickUnlockScreen), findsOneWidget);
       expect(find.text('Protected content'), findsNothing);
-      await tester.enterText(find.byType(TextField), '1234');
-      await tester.tap(find.text('Unlock'));
-      await tester.pumpAndSettle();
+      await enterUnlockPin(tester, '9999');
+      expect(find.text('Incorrect PIN. Please try again.'), findsOneWidget);
+      expect(find.text('Protected content'), findsNothing);
+      await enterUnlockPin(tester, '1234');
       expect(find.text('Protected content'), findsOneWidget);
 
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);

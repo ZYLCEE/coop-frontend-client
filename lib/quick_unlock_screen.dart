@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'security/quick_access_controller.dart';
 import 'security/quick_access_service.dart';
 
@@ -12,18 +11,85 @@ class QuickUnlockScreen extends StatefulWidget {
 }
 
 class _QuickUnlockScreenState extends State<QuickUnlockScreen> {
-  final _pin = TextEditingController();
-
-  @override
-  void dispose() {
-    _pin.dispose();
-    super.dispose();
-  }
+  String _pin = '';
 
   Future<void> _unlockPin() async {
-    await widget.controller.unlockWithPin(_pin.text);
-    if (mounted) _pin.clear();
+    if (_pin.length != 4 || widget.controller.busy) return;
+    final pin = _pin;
+    setState(() => _pin = '');
+    await widget.controller.unlockWithPin(pin);
   }
+
+  void _pressDigit(String digit) {
+    if (widget.controller.busy || _pin.length >= 4) return;
+    setState(() => _pin += digit);
+    if (_pin.length == 4) _unlockPin();
+  }
+
+  void _eraseDigit() {
+    if (widget.controller.busy || _pin.isEmpty) return;
+    setState(() => _pin = _pin.substring(0, _pin.length - 1));
+  }
+
+  Widget _pinKey(String digit) => SizedBox(
+    width: 72,
+    height: 64,
+    child: TextButton(
+      onPressed: widget.controller.busy ? null : () => _pressDigit(digit),
+      child: Text(
+        digit,
+        style: const TextStyle(fontSize: 24, color: Color(0xFF1A5E38)),
+      ),
+    ),
+  );
+
+  Widget _pinKeypad() => Column(
+    children: [
+      for (final row in const [
+        ['1', '2', '3'],
+        ['4', '5', '6'],
+        ['7', '8', '9'],
+      ])
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: row.map(_pinKey).toList(),
+        ),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          const SizedBox(width: 72),
+          _pinKey('0'),
+          SizedBox(
+            width: 72,
+            height: 64,
+            child: IconButton(
+              onPressed: widget.controller.busy ? null : _eraseDigit,
+              icon: const Icon(Icons.backspace_outlined),
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+
+  Widget _pinDots() => Row(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: List.generate(
+      4,
+      (index) => Container(
+        margin: const EdgeInsets.symmetric(horizontal: 10),
+        width: 14,
+        height: 14,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: index < _pin.length
+              ? const Color(0xFF1A5E38)
+              : Colors.transparent,
+          border: Border.all(color: const Color(0xFF1A5E38), width: 2),
+        ),
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -66,26 +132,11 @@ class _QuickUnlockScreenState extends State<QuickUnlockScreen> {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 24),
-                        if (!biometric)
-                          TextField(
-                            controller: _pin,
-                            enabled: !controller.busy,
-                            obscureText: true,
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            keyboardType: TextInputType.number,
-                            textInputAction: TextInputAction.done,
-                            maxLength: 4,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            decoration: const InputDecoration(
-                              labelText: '4-digit PIN',
-                              border: OutlineInputBorder(),
-                              counterText: '',
-                            ),
-                            onSubmitted: (_) => _unlockPin(),
-                          ),
+                        if (!biometric) ...[
+                          _pinDots(),
+                          const SizedBox(height: 18),
+                          _pinKeypad(),
+                        ],
                         if (controller.error != null)
                           Padding(
                             padding: const EdgeInsets.only(top: 16),
@@ -95,30 +146,26 @@ class _QuickUnlockScreenState extends State<QuickUnlockScreen> {
                               textAlign: TextAlign.center,
                             ),
                           ),
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: controller.busy
-                                ? null
-                                : biometric
-                                ? controller.unlockWithBiometrics
-                                : _unlockPin,
-                            child: controller.busy
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Text(
-                                    biometric
-                                        ? 'Unlock with biometrics'
-                                        : 'Unlock',
-                                  ),
+                        if (biometric) ...[
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: controller.busy
+                                  ? null
+                                  : controller.unlockWithBiometrics,
+                              child: controller.busy
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Text('Unlock with biometrics'),
+                            ),
                           ),
-                        ),
+                        ],
                         TextButton(
                           onPressed: controller.busy
                               ? null

@@ -43,7 +43,9 @@ class DatabaseService {
     final member = await getMember(userId);
     final response = await _supabase
         .from('loan_applications')
-        .select('*, members(member_id, first_name, last_name, membership_type)')
+        .select(
+          '*, members(member_id, first_name, last_name, membership_type), loan_payments(payment_amount,payment_date)',
+        )
         .eq('member_id', member['id'])
         .order('date_submitted', ascending: false);
     return response;

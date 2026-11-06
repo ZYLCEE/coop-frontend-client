@@ -121,6 +121,8 @@ class LoanDocumentUploadService {
       if (failure is StateError) rethrow;
       if (failure is PostgrestException && failure.code == 'P0001')
         throw StateError(failure.message);
+      if (failure is PostgrestException && failure.code == '23505')
+        throw StateError(failure.message);
       throw StateError(
         'Unable to upload your documents and submit the application. Check your connection and retry.',
       );
