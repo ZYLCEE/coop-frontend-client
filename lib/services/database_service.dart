@@ -34,8 +34,28 @@ class DatabaseService {
     return response;
   }
 
-  Future<void> updateMember(String memberId, Map<String, dynamic> data) async {
-    await _supabase.from('members').update(data).eq('member_id', memberId);
+  Future<Map<String, dynamic>> updateOwnMemberInfo({
+    required String userId,
+    String? firstName,
+    String? lastName,
+    String? phone,
+    String? address,
+  }) async {
+    if (_supabase.auth.currentUser?.id != userId) {
+      throw StateError('Sign in again to update your profile.');
+    }
+
+    return _supabase
+        .from('members')
+        .update({
+          'first_name': ?firstName,
+          'last_name': ?lastName,
+          'phone': ?phone,
+          'address': ?address,
+        })
+        .eq('user_id', userId)
+        .select()
+        .single();
   }
 
   // Loan applications operations
