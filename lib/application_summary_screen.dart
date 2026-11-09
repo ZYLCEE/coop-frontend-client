@@ -1,33 +1,17 @@
+import 'loan_application_flow.dart';
+import 'widgets/loan_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'member_information_card.dart';
 import 'app_theme.dart';
 import 'review_terms_screen.dart';
 import 'loan_calculator_service.dart';
-import 'models/loan_document.dart';
+import 'models/loan_agreement_snapshot.dart';
+import 'widgets/loan_agreement_preview.dart';
 
 class ApplicationSummaryScreen extends StatefulWidget {
-  final double loanAmount;
-  final LoanType loanType;
-  final int tenure;
-  final LoanComputation computation;
-  final String payslipFileName;
-  final String idFileName;
-  final String? collateralFileName;
-  final String? otherFileName;
-  final List<SelectedLoanDocument> documents;
+  final LoanApplicationFlow flow;
 
-  const ApplicationSummaryScreen({
-    super.key,
-    required this.loanAmount,
-    required this.loanType,
-    required this.tenure,
-    required this.computation,
-    required this.payslipFileName,
-    required this.idFileName,
-    this.collateralFileName,
-    this.otherFileName,
-    this.documents = const [],
-  });
+  const ApplicationSummaryScreen({super.key, required this.flow});
 
   @override
   State<ApplicationSummaryScreen> createState() =>
@@ -36,9 +20,16 @@ class ApplicationSummaryScreen extends StatefulWidget {
 
 class _ApplicationSummaryScreenState extends State<ApplicationSummaryScreen> {
   bool _isConfirmed = false;
+  late final _snapshot = LoanAgreementSnapshot.fromDraft(
+    widget.flow.draft,
+    participantsDemo: widget.flow.participantsDemo,
+  );
 
   @override
   Widget build(BuildContext context) {
+    final computation = _snapshot.computation;
+    final usesPreview = widget.flow.hasParticipantsStep;
+    final canContinue = _isConfirmed || usesPreview;
     return Scaffold(
       backgroundColor: const Color(0xFFF3F5F4),
       appBar: _buildAppBar(),
@@ -49,57 +40,60 @@ class _ApplicationSummaryScreenState extends State<ApplicationSummaryScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const LoanProgressIndicator(currentStep: 2),
+              LoanProgressIndicator.forApplication(
+                LoanApplicationStep.review,
+                participantsDemo: widget.flow.participantsDemo,
+                previewOnly: widget.flow.previewOnly,
+              ),
               const SizedBox(height: AppTheme.spacingL),
               SummaryCard(
-                loanAmount: widget.loanAmount,
-                loanType: widget.loanType,
-                tenure: widget.tenure,
-                interestRate: widget.computation.interestRate,
+                loanAmount: _snapshot.amount,
+                loanType: _snapshot.loanType,
+                tenure: _snapshot.tenure,
+                interestRate: computation.interestRate,
               ),
               const SizedBox(height: AppTheme.spacingL),
-              const MemberInformationCard(),
+              LiveMemberInformationCard(snapshot: _snapshot.applicant),
               const SizedBox(height: AppTheme.spacingL),
               LoanDetailsCard(
-                loanType: widget.loanType,
-                computation: widget.computation,
-                tenure: widget.tenure,
+                loanType: _snapshot.loanType,
+                computation: computation,
+                tenure: _snapshot.tenure,
+                applicationKindLabel: _snapshot.applicationKind?.label,
               ),
               const SizedBox(height: AppTheme.spacingL),
-              const DisbursementMethodCard(),
+              if (usesPreview) ...[
+                LoanParticipantReviewCard(
+                  snapshot: _snapshot,
+                  localPreview: widget.flow.previewOnly,
+                ),
+                const SizedBox(height: AppTheme.spacingL),
+              ],
+              SelectedDocumentsCard(snapshot: _snapshot),
               const SizedBox(height: AppTheme.spacingL),
-              DocumentsSubmittedCard(
-                payslipFileName: widget.payslipFileName,
-                idFileName: widget.idFileName,
-                collateralFileName: widget.collateralFileName,
-                otherFileName: widget.otherFileName,
-              ),
-              const SizedBox(height: AppTheme.spacingL),
-              ConfirmationCard(
-                isConfirmed: _isConfirmed,
-                onChanged: (value) {
-                  setState(() {
-                    _isConfirmed = value ?? false;
-                  });
-                },
-              ),
+              if (!usesPreview)
+                ConfirmationCard(
+                  isConfirmed: _isConfirmed,
+                  onChanged: (value) {
+                    setState(() {
+                      _isConfirmed = value ?? false;
+                    });
+                  },
+                ),
               const SizedBox(height: AppTheme.spacingXL),
               PrimaryButton(
-                isEnabled: _isConfirmed,
-                onPressed: _isConfirmed
-                    ? () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ReviewTermsScreen(
-                              loanAmount: widget.loanAmount,
-                              loanType: widget.loanType.label,
-                              tenure: widget.tenure,
-                              documents: widget.documents,
-                            ),
-                          ),
-                        );
-                      }
+                label: usesPreview
+                    ? 'Preview Agreement and Terms'
+                    : 'Continue to Terms & Conditions',
+                isEnabled: canContinue,
+                onPressed: canContinue
+                    ? () => widget.flow.push(
+                        context,
+                        (_) => ReviewTermsScreen(
+                          flow: widget.flow,
+                          snapshot: _snapshot,
+                        ),
+                      )
                     : null,
               ),
               const SizedBox(height: AppTheme.spacingXL),
@@ -131,82 +125,6 @@ class _ApplicationSummaryScreenState extends State<ApplicationSummaryScreen> {
         ),
       ),
       centerTitle: true,
-    );
-  }
-}
-
-class LoanProgressIndicator extends StatelessWidget {
-  final int currentStep;
-
-  const LoanProgressIndicator({super.key, required this.currentStep});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _buildStep('Loan Details', 0, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 0
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Documents', 1, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 1
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Review', 2, currentStep),
-      ],
-    );
-  }
-
-  Widget _buildStep(String label, int step, int currentStep) {
-    final isActive = step == currentStep;
-    final isCompleted = step < currentStep;
-
-    return Column(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: isCompleted
-                ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : Text(
-                    '${step + 1}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFF7D8A82),
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
     );
   }
 }
@@ -307,7 +225,10 @@ class SummaryCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  '${interestRate.toStringAsFixed(0)}%/mo',
+                  LoanCalculatorService.formatPercentage(
+                    interestRate,
+                    compact: true,
+                  ),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 12,
@@ -327,25 +248,19 @@ class SummaryCard extends StatelessWidget {
   }
 }
 
-class MemberInformationCard extends StatelessWidget {
-  const MemberInformationCard({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const LiveMemberInformationCard();
-  }
-}
-
 class LoanDetailsCard extends StatelessWidget {
   final LoanType loanType;
   final LoanComputation computation;
   final int tenure;
+
+  final String? applicationKindLabel;
 
   const LoanDetailsCard({
     super.key,
     required this.loanType,
     required this.computation,
     required this.tenure,
+    this.applicationKindLabel,
   });
 
   @override
@@ -371,6 +286,13 @@ class LoanDetailsCard extends StatelessWidget {
           ),
           const SizedBox(height: AppTheme.spacingL),
           _buildInfoRow('Loan Type', _getLoanTypeLabel(loanType)),
+          if (applicationKindLabel != null) ...[
+            const Divider(color: Color(0xFFE6E6E6), thickness: 1),
+            _buildInfoRow(
+              'Application Type',
+              '$applicationKindLabel (draft only)',
+            ),
+          ],
           const Divider(color: Color(0xFFE6E6E6), thickness: 1),
           _buildInfoRow(
             'Principal Amount',
@@ -389,6 +311,14 @@ class LoanDetailsCard extends StatelessWidget {
             LoanCalculatorService.formatCurrency(computation.totalInterest),
           ),
           const Divider(color: Color(0xFFE6E6E6), thickness: 1),
+          for (final fee in [
+            ('Processing Fee', computation.processingFee),
+            ('Notarial Fee', computation.notarialFee),
+            ('Retention Fee', computation.retentionFee),
+          ]) ...[
+            _buildInfoRow(fee.$1, LoanCalculatorService.formatCurrency(fee.$2)),
+            const Divider(color: Color(0xFFE6E6E6), thickness: 1),
+          ],
           _buildInfoRow(
             'Total Deductions',
             LoanCalculatorService.formatCurrency(
@@ -418,22 +348,19 @@ class LoanDetailsCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingM),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Color(0xFF7D8A82),
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Color(0xFF183A24),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+          Expanded(child: Text(label, style: AppTheme.captionRegular)),
+          const SizedBox(width: AppTheme.spacingS),
+          Flexible(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                value,
+                textAlign: TextAlign.end,
+                style: AppTheme.captionBold.copyWith(
+                  color: AppTheme.primaryText,
+                ),
+              ),
             ),
           ),
         ],
@@ -443,156 +370,6 @@ class LoanDetailsCard extends StatelessWidget {
 
   String _getLoanTypeLabel(LoanType type) {
     return type.label;
-  }
-}
-
-class DisbursementMethodCard extends StatelessWidget {
-  const DisbursementMethodCard({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.spacingL),
-      decoration: BoxDecoration(
-        color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: AppTheme.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'DISBURSEMENT METHOD',
-            style: TextStyle(
-              color: Color(0xFF7D8A82),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.0,
-            ),
-          ),
-          const SizedBox(height: AppTheme.spacingL),
-          Row(
-            children: [
-              const Text(
-                'Payout',
-                style: TextStyle(
-                  color: Color(0xFF7D8A82),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(width: AppTheme.spacingL),
-              Expanded(
-                child: Text(
-                  'Cheque',
-                  style: const TextStyle(
-                    color: Color(0xFF183A24),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class DocumentsSubmittedCard extends StatelessWidget {
-  final String payslipFileName;
-  final String idFileName;
-  final String? collateralFileName;
-  final String? otherFileName;
-
-  const DocumentsSubmittedCard({
-    super.key,
-    required this.payslipFileName,
-    required this.idFileName,
-    this.collateralFileName,
-    this.otherFileName,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.spacingL),
-      decoration: BoxDecoration(
-        color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: AppTheme.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'DOCUMENTS SUBMITTED',
-            style: TextStyle(
-              color: Color(0xFF7D8A82),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.0,
-            ),
-          ),
-          const SizedBox(height: AppTheme.spacingL),
-          _buildDocumentRow('Pay Slip', payslipFileName),
-          const Divider(color: Color(0xFFE6E6E6), thickness: 1),
-          _buildDocumentRow('Valid Identification', idFileName),
-          const Divider(color: Color(0xFFE6E6E6), thickness: 1),
-          _buildDocumentRow('Collateral Document', collateralFileName),
-          const Divider(color: Color(0xFFE6E6E6), thickness: 1),
-          _buildDocumentRow('Other Supporting Documents', otherFileName),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDocumentRow(String label, String? fileName) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppTheme.spacingM),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Color(0xFF7D8A82),
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Row(
-            children: [
-              if (fileName != null) ...[
-                const Icon(
-                  Icons.check_circle,
-                  color: AppTheme.primaryGreen,
-                  size: 16,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  'Uploaded',
-                  style: const TextStyle(
-                    color: AppTheme.primaryGreen,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ] else
-                Text(
-                  'Not Submitted',
-                  style: const TextStyle(
-                    color: Color(0xFF7D8A82),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -662,7 +439,14 @@ class PrimaryButton extends StatelessWidget {
   final bool isEnabled;
   final VoidCallback? onPressed;
 
-  const PrimaryButton({super.key, required this.isEnabled, this.onPressed});
+  const PrimaryButton({
+    super.key,
+    required this.label,
+    required this.isEnabled,
+    this.onPressed,
+  });
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -681,9 +465,9 @@ class PrimaryButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        child: const Text(
-          'Continue to Terms & Conditions',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
     );

@@ -1,3 +1,4 @@
+import 'app_theme.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -106,6 +107,15 @@ class _DashboardState extends State<Dashboard> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const LoansScreen(hideTabs: true)),
+    );
+  }
+
+  void _openPendingApplications() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const LoansScreen(startOnPendingApplications: true),
+      ),
     );
   }
 
@@ -295,14 +305,16 @@ class _DashboardState extends State<Dashboard> {
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            status == 'active'
-                ? 'Active Member ($memberId)'
-                : 'Inactive ($memberId)',
-            style: const TextStyle(
-              color: Color(0xFFE8D5A7),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              status == 'active'
+                  ? 'Active Member ($memberId)'
+                  : 'Inactive ($memberId)',
+              style: const TextStyle(
+                color: Color(0xFFE8D5A7),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -610,13 +622,16 @@ class _DashboardState extends State<Dashboard> {
                     size: 20,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    _hasPendingApplication
-                        ? 'Application Pending'
-                        : 'Apply for a Loan',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                  Flexible(
+                    child: Text(
+                      _hasPendingApplication
+                          ? 'Application Pending'
+                          : 'Apply for a Loan',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -628,9 +643,7 @@ class _DashboardState extends State<Dashboard> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: () {
-                // TODO: Navigate to contributions/ledgers screen
-              },
+              onPressed: _openPendingApplications,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFE8F5E9),
                 foregroundColor: _primaryGreen,
@@ -642,15 +655,12 @@ class _DashboardState extends State<Dashboard> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Flexible(
-                    flex: 0,
-                    child: Icon(Icons.description, size: 20),
-                  ),
+                  const Icon(Icons.track_changes, size: 20),
                   const SizedBox(width: 8),
                   const Flexible(
                     child: Text(
-                      'View Contributions / Ledgers',
-                      overflow: TextOverflow.ellipsis,
+                      'Track Application',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -668,6 +678,7 @@ class _DashboardState extends State<Dashboard> {
 
   Widget _buildRecentActivityCard() {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: _cardWhite,
@@ -693,6 +704,11 @@ class _DashboardState extends State<Dashboard> {
             ),
           ),
           const SizedBox(height: 16),
+          if (_recentActivities.isEmpty)
+            const Text(
+              'No recent activity yet.',
+              style: AppTheme.captionRegular,
+            ),
           // Activity rows
           ..._recentActivities.map((activity) {
             return Container(

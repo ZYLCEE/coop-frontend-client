@@ -1,3 +1,5 @@
+import 'loan_application_flow.dart';
+import 'widgets/loan_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'application_summary_screen.dart';
@@ -6,6 +8,7 @@ import 'models/loan_document.dart';
 import 'services/document_picker_service.dart';
 
 class DocumentsDisbursementScreen extends StatefulWidget {
+  final LoanApplicationFlow? flow;
   final double loanAmount;
   final LoanType loanType;
   final int tenure;
@@ -16,6 +19,7 @@ class DocumentsDisbursementScreen extends StatefulWidget {
 
   const DocumentsDisbursementScreen({
     super.key,
+    this.flow,
     this.loanAmount = 50000.0,
     required this.loanType,
     required this.tenure,
@@ -25,6 +29,18 @@ class DocumentsDisbursementScreen extends StatefulWidget {
     this.onReview,
   });
 
+  factory DocumentsDisbursementScreen.forFlow(LoanApplicationFlow flow) {
+    final draft = flow.draft;
+    return DocumentsDisbursementScreen(
+      flow: flow,
+      loanAmount: draft.amount,
+      loanType: draft.loanType,
+      tenure: draft.tenure,
+      computation: draft.computation!,
+      collateralRequiredAbove: draft.policy!.collateralRequiredAbove,
+    );
+  }
+
   @override
   State<DocumentsDisbursementScreen> createState() =>
       _DocumentsDisbursementScreenState();
@@ -32,7 +48,10 @@ class DocumentsDisbursementScreen extends StatefulWidget {
 
 class _DocumentsDisbursementScreenState
     extends State<DocumentsDisbursementScreen> {
-  final _documents = <LoanDocumentKind, SelectedLoanDocument>{};
+  late final _documents =
+      widget.flow?.draft.documents ??
+      <LoanDocumentKind, SelectedLoanDocument>{};
+  bool get _active => mounted && (widget.flow?.isActive ?? true);
   late final DocumentPickerService _picker;
   bool _busy = true;
   bool _choosingSource = false;
@@ -46,15 +65,19 @@ class _DocumentsDisbursementScreenState
   @override
   void initState() {
     super.initState();
-    _picker = widget.picker ?? DocumentPickerService();
+    _picker =
+        widget.picker ??
+        DocumentPickerService(
+          recoverInterruptedImages: widget.flow?.previewOnly != true,
+        );
     _recoverSelection();
   }
 
   Future<void> _recoverSelection() async {
     try {
       final recovered = await _picker.recoverLostSelection();
-      if (mounted && recovered != null)
-        setState(() => _documents[recovered.kind] = recovered);
+      if (_active && recovered != null && _isVisible(recovered.kind))
+        setState(() => _documents.putIfAbsent(recovered.kind, () => recovered));
     } catch (_) {
       if (mounted)
         setState(
@@ -114,9 +137,9 @@ class _DocumentsDisbursementScreenState
         ),
       );
       if (mounted) setState(() => _choosingSource = false);
-      if (source == null || !mounted) return;
+      if (source == null || !_active) return;
       final selected = await _picker.pick(kind, source);
-      if (mounted && selected != null)
+      if (_active && selected != null && _isVisible(kind))
         setState(() => _documents[kind] = selected);
     } catch (failure) {
       if (mounted)
@@ -133,18 +156,33 @@ class _DocumentsDisbursementScreenState
     }
   }
 
-  bool get _isCollateralRequired =>
-      widget.loanAmount > widget.collateralRequiredAbove;
-
-  bool get _isValidated {
-    if (_busy) return false;
-    if (_payslipFileName == null || _idFileName == null) return false;
-    if (_isCollateralRequired && _collateralFileName == null) return false;
-    return true;
+  bool get _participantsDemo => widget.flow?.participantsDemo ?? false;
+  double get _amount {
+    final flow = widget.flow;
+    return flow != null && flow.isActive
+        ? flow.draft.amount
+        : widget.loanAmount;
   }
+
+  bool _isVisible(LoanDocumentKind kind) =>
+      kind.isVisibleFor(amount: _amount, participantsDemo: _participantsDemo);
+
+  bool _isRequired(LoanDocumentKind kind) => kind.isRequiredFor(
+    amount: _amount,
+    participantsDemo: _participantsDemo,
+    collateralRequiredAbove: widget.collateralRequiredAbove,
+  );
+
+  bool get _isCollateralRequired => _isRequired(LoanDocumentKind.collateral);
 
   @override
   Widget build(BuildContext context) {
+    final showCollateral = _isVisible(LoanDocumentKind.collateral);
+    final missing = LoanDocumentKind.values.where(
+      (kind) => _isRequired(kind) && !_documents.containsKey(kind),
+    );
+    final previewOnly = widget.flow?.previewOnly ?? false;
+    final canReview = !_busy && (previewOnly || missing.isEmpty);
     return Scaffold(
       backgroundColor: const Color(0xFFF3F5F4),
       appBar: _buildAppBar(),
@@ -155,7 +193,11 @@ class _DocumentsDisbursementScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const LoanProgressIndicator(currentStep: 1),
+              LoanProgressIndicator.forApplication(
+                LoanApplicationStep.documents,
+                participantsDemo: _participantsDemo,
+                previewOnly: previewOnly,
+              ),
               const SizedBox(height: AppTheme.spacingL),
               const Text(
                 'UPLOAD REQUIREMENTS',
@@ -188,21 +230,28 @@ class _DocumentsDisbursementScreenState
                 onRemove: () =>
                     setState(() => _documents.remove(LoanDocumentKind.validId)),
               ),
-              const SizedBox(height: AppTheme.spacingM),
-              UploadRequirementCard(
-                title: 'Collateral Document',
-                subtitle: _isCollateralRequired
-                    ? 'Required for loans over ${LoanCalculatorService.formatCurrency(widget.collateralRequiredAbove)}'
-                    : 'Optional (required for loans over ${LoanCalculatorService.formatCurrency(widget.collateralRequiredAbove)})',
-                fileName: _collateralFileName,
-                isRequired: _isCollateralRequired,
-                document: _documents[LoanDocumentKind.collateral],
-                enabled: !_busy,
-                onUpload: () => _pickDocument(LoanDocumentKind.collateral),
-                onRemove: () => setState(
-                  () => _documents.remove(LoanDocumentKind.collateral),
+              if (showCollateral) ...[
+                const SizedBox(height: AppTheme.spacingM),
+                UploadRequirementCard(
+                  title: 'Collateral Document',
+                  requirementLabel: _participantsDemo
+                      ? 'Required in demo'
+                      : null,
+                  subtitle: _participantsDemo
+                      ? 'Required in this demo at ₱200,000 and above. Proposed rule pending CSUCC confirmation.'
+                      : _isCollateralRequired
+                      ? 'Required for loans over ${LoanCalculatorService.formatCurrency(widget.collateralRequiredAbove)}'
+                      : 'Optional (required for loans over ${LoanCalculatorService.formatCurrency(widget.collateralRequiredAbove)})',
+                  fileName: _collateralFileName,
+                  isRequired: _isCollateralRequired,
+                  document: _documents[LoanDocumentKind.collateral],
+                  enabled: !_busy,
+                  onUpload: () => _pickDocument(LoanDocumentKind.collateral),
+                  onRemove: () => setState(
+                    () => _documents.remove(LoanDocumentKind.collateral),
+                  ),
                 ),
-              ),
+              ],
               const SizedBox(height: AppTheme.spacingM),
               UploadRequirementCard(
                 title: 'Other Supporting Documents',
@@ -217,10 +266,34 @@ class _DocumentsDisbursementScreenState
                 ),
               ),
               const SizedBox(height: AppTheme.spacingXL),
-              const Text(
-                'Images and PDFs, up to 10 MB each. Documents are saved when you submit the application.',
-                style: TextStyle(fontSize: 12, color: AppTheme.mutedGray),
+              Text(
+                previewOnly
+                    ? 'Images and PDFs, up to 10 MB each. Files stay in this local preview.'
+                    : _participantsDemo
+                    ? 'Images and PDFs, up to 10 MB each. Use sample files for this local demo.'
+                    : 'Images and PDFs, up to 10 MB each. Documents are uploaded at submission.',
+                style: AppTheme.captionRegular,
               ),
+              if (!showCollateral && _collateralFileName != null)
+                const Padding(
+                  padding: EdgeInsets.only(top: AppTheme.spacingM),
+                  child: Text(
+                    'Your collateral file is kept in this draft and excluded '
+                    'from review at this amount. It becomes available again '
+                    'at ₱200,000 or above.',
+                    style: AppTheme.captionRegular,
+                  ),
+                ),
+              if (!_busy && missing.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppTheme.spacingM,
+                  ),
+                  child: Text(
+                    '${previewOnly ? 'Missing in this draft' : 'Required before review'}: ${missing.map((kind) => kind.label).join(', ')}.',
+                    style: AppTheme.captionBold,
+                  ),
+                ),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -235,33 +308,26 @@ class _DocumentsDisbursementScreenState
                   child: Center(child: CircularProgressIndicator()),
                 ),
               PrimaryButton(
-                isEnabled: _isValidated,
-                onPressed: _isValidated
+                isEnabled: canReview,
+                onPressed: canReview
                     ? () {
-                        final documents =
-                            List<SelectedLoanDocument>.unmodifiable(
-                              _documents.values,
-                            );
                         if (widget.onReview != null) {
-                          widget.onReview!(documents);
+                          widget.onReview!(
+                            List<SelectedLoanDocument>.unmodifiable(
+                              _documents.values.where(
+                                (file) => _isVisible(file.kind),
+                              ),
+                            ),
+                          );
                           return;
                         }
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ApplicationSummaryScreen(
-                              loanAmount: widget.loanAmount,
-                              loanType: widget.loanType,
-                              tenure: widget.tenure,
-                              computation: widget.computation,
-                              payslipFileName: _payslipFileName!,
-                              idFileName: _idFileName!,
-                              collateralFileName: _collateralFileName,
-                              otherFileName: _otherFileName,
-                              documents: documents,
-                            ),
-                          ),
-                        );
+                        final flow = widget.flow;
+                        if (flow != null) {
+                          flow.push(
+                            context,
+                            (_) => ApplicationSummaryScreen(flow: flow),
+                          );
+                        }
                       }
                     : null,
               ),
@@ -298,87 +364,12 @@ class _DocumentsDisbursementScreenState
   }
 }
 
-class LoanProgressIndicator extends StatelessWidget {
-  final int currentStep;
-
-  const LoanProgressIndicator({super.key, required this.currentStep});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _buildStep('Loan Details', 0, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 0
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Documents', 1, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 1
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Review', 2, currentStep),
-      ],
-    );
-  }
-
-  Widget _buildStep(String label, int step, int currentStep) {
-    final isActive = step == currentStep;
-    final isCompleted = step < currentStep;
-
-    return Column(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: isCompleted
-                ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : Text(
-                    '${step + 1}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFF7D8A82),
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class UploadRequirementCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final String? fileName;
   final bool isRequired;
+  final String? requirementLabel;
   final VoidCallback onUpload;
   final VoidCallback? onRemove;
   final SelectedLoanDocument? document;
@@ -390,6 +381,7 @@ class UploadRequirementCard extends StatelessWidget {
     required this.subtitle,
     this.fileName,
     this.isRequired = true,
+    this.requirementLabel,
     required this.onUpload,
     this.onRemove,
     this.document,
@@ -454,6 +446,10 @@ class UploadRequirementCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
+                    requirementLabel ?? (isRequired ? 'Required' : 'Optional'),
+                    style: AppTheme.captionBold,
+                  ),
+                  Text(
                     fileName ?? subtitle,
                     style: TextStyle(
                       color: fileName != null
@@ -463,6 +459,11 @@ class UploadRequirementCard extends StatelessWidget {
                       fontWeight: FontWeight.w400,
                     ),
                   ),
+                  if (fileName != null)
+                    const Text(
+                      'Tap card to replace',
+                      style: AppTheme.captionRegular,
+                    ),
                 ],
               ),
             ),

@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import '../loan_application_mode.dart';
 import '../security/quick_access_controller.dart';
 
 class SupabaseService {
@@ -114,7 +115,11 @@ class SupabaseService {
     await QuickAccessController.instance.clearAfterSignOut();
   }
 
-  Future<void> sendOtp({required String email}) async {
+  Future<void> sendOtp({
+    required String email,
+    bool participantsDemo = false,
+  }) async {
+    requireLiveLoanOperations(participantsDemo: participantsDemo);
     final normalizedEmail = email.trim();
     if (normalizedEmail.isEmpty) {
       throw StateError(
@@ -160,7 +165,12 @@ class SupabaseService {
     }
   }
 
-  Future<void> verifyOtp({required String email, required String token}) async {
+  Future<void> verifyOtp({
+    required String email,
+    required String token,
+    bool participantsDemo = false,
+  }) async {
+    requireLiveLoanOperations(participantsDemo: participantsDemo);
     await client.auth.verifyOTP(
       email: email,
       token: token,

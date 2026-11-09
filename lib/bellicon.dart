@@ -120,7 +120,13 @@ class NotificationAppBar extends StatelessWidget {
 class NotificationCard extends StatelessWidget {
   final NotificationItem notification;
 
-  const NotificationCard({super.key, required this.notification});
+  const NotificationCard({
+    super.key,
+    required this.notification,
+    this.onAction,
+  });
+
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -177,6 +183,11 @@ class NotificationCard extends StatelessWidget {
                     height: 1.4,
                   ),
                 ),
+                if (onAction != null && notification.actionText != null)
+                  TextButton(
+                    onPressed: onAction,
+                    child: Text(notification.actionText!),
+                  ),
               ],
             ),
           ),

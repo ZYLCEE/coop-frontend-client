@@ -1,3 +1,5 @@
+import 'loan_application_flow.dart';
+import 'widgets/loan_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -5,7 +7,7 @@ import 'app_theme.dart';
 import 'application_service.dart';
 import 'services/supabase_service.dart';
 import 'services/database_service.dart';
-import 'models/loan_document.dart';
+import 'loan_calculator_service.dart';
 import 'loan_application_submitted_screen.dart';
 
 String maskEmailAddress(String email) {
@@ -21,18 +23,9 @@ String maskEmailAddress(String email) {
 }
 
 class EmailOtpVerificationScreen extends StatefulWidget {
-  final double loanAmount;
-  final String loanType;
-  final int tenure;
-  final List<SelectedLoanDocument> documents;
+  final LoanApplicationFlow flow;
 
-  const EmailOtpVerificationScreen({
-    super.key,
-    required this.loanAmount,
-    required this.loanType,
-    this.tenure = 12,
-    this.documents = const [],
-  });
+  const EmailOtpVerificationScreen({super.key, required this.flow});
 
   @override
   State<EmailOtpVerificationScreen> createState() =>
@@ -56,6 +49,8 @@ class _EmailOtpVerificationScreenState
   String? _verifiedEmail;
   String? _emailError;
   bool _otpSent = false;
+  bool get _active => mounted && widget.flow.canUseLiveSubmission;
+  bool get _canVerify => _active && ModalRoute.of(context)?.isCurrent == true;
 
   @override
   void initState() {
@@ -64,10 +59,14 @@ class _EmailOtpVerificationScreenState
   }
 
   Future<void> _sendInitialOtp() async {
+    if (!_active) return;
     try {
       final email = await _loadVerifiedRegisteredEmail();
-      if (email == null) return;
-      await SupabaseService().sendOtp(email: email);
+      if (email == null || !_active) return;
+      await SupabaseService().sendOtp(
+        email: email,
+        participantsDemo: widget.flow.participantsDemo,
+      );
       if (mounted) {
         setState(() => _otpSent = true);
         _startResendTimer();
@@ -180,12 +179,15 @@ class _EmailOtpVerificationScreenState
   }
 
   void _handleResend() async {
-    if (!_canResend) return;
+    if (!_active || !_canResend) return;
 
     try {
       final email = _verifiedEmail ?? await _loadVerifiedRegisteredEmail();
-      if (email == null) return;
-      await SupabaseService().sendOtp(email: email);
+      if (email == null || !_active) return;
+      await SupabaseService().sendOtp(
+        email: email,
+        participantsDemo: widget.flow.participantsDemo,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -218,7 +220,7 @@ class _EmailOtpVerificationScreenState
   }
 
   void _handleVerify() async {
-    if (!_isOtpComplete() || _isVerifying) return;
+    if (!_canVerify || !_isOtpComplete() || _isVerifying) return;
 
     setState(() {
       _isVerifying = true;
@@ -236,23 +238,31 @@ class _EmailOtpVerificationScreenState
           throw StateError(
             _emailError ?? 'The registered email could not be verified.',
           );
-        await SupabaseService().verifyOtp(email: email, token: otp);
+        if (!_canVerify) return;
+        await SupabaseService().verifyOtp(
+          email: email,
+          token: otp,
+          participantsDemo: widget.flow.participantsDemo,
+        );
         _isEmailVerified = true;
       }
 
+      if (!_canVerify) return;
+      final draft = widget.flow.draft;
       _referenceNumber ??= ApplicationService.generateReferenceNumber();
       await DatabaseService().submitLoanApplication(
         applicationId: _referenceNumber!,
-        loanType: widget.loanType,
-        amount: widget.loanAmount,
-        documents: widget.documents,
-        tenureMonths: widget.tenure,
+        loanType: draft.loanType.label,
+        amount: draft.amount,
+        documents: draft.documents.values.toList(growable: false),
+        tenureMonths: draft.tenure,
+        participantsDemo: widget.flow.participantsDemo,
         onProgress: (status) {
           if (mounted) setState(() => _submissionStatus = status);
         },
       );
 
-      if (mounted) {
+      if (_canVerify) {
         _clearOtp(requestFocus: false);
         Navigator.pushReplacement(
           context,
@@ -264,6 +274,7 @@ class _EmailOtpVerificationScreenState
           ),
         );
       }
+      widget.flow.close();
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -286,6 +297,18 @@ class _EmailOtpVerificationScreenState
 
   @override
   Widget build(BuildContext context) {
+    if (widget.flow.previewOnly) {
+      return Scaffold(
+        appBar: _buildAppBar(),
+        body: const Center(child: Text('Submission Not Yet Available')),
+      );
+    }
+    if (widget.flow.participantsDemo) {
+      return Scaffold(
+        appBar: _buildAppBar(),
+        body: const Center(child: Text('End of participant selection demo.')),
+      );
+    }
     return Scaffold(
       backgroundColor: const Color(0xFFF3F5F4),
       appBar: _buildAppBar(),
@@ -369,82 +392,6 @@ class _EmailOtpVerificationScreenState
         ),
       ),
       centerTitle: true,
-    );
-  }
-}
-
-class LoanProgressIndicator extends StatelessWidget {
-  final int currentStep;
-
-  const LoanProgressIndicator({super.key, required this.currentStep});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _buildStep('Loan Details', 0, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 0
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Documents', 1, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 1
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Review', 2, currentStep),
-      ],
-    );
-  }
-
-  Widget _buildStep(String label, int step, int currentStep) {
-    final isActive = step == currentStep;
-    final isCompleted = step < currentStep;
-
-    return Column(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: isCompleted
-                ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : Text(
-                    '${step + 1}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFF7D8A82),
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../loan_application_mode.dart';
 import '../models/loan_document.dart';
 import '../models/loan_policy.dart';
 import 'loan_document_upload_service.dart';
@@ -32,30 +33,6 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getAllMembers() async {
     final response = await _supabase.from('members').select();
     return response;
-  }
-
-  Future<Map<String, dynamic>> updateOwnMemberInfo({
-    required String userId,
-    String? firstName,
-    String? lastName,
-    String? phone,
-    String? address,
-  }) async {
-    if (_supabase.auth.currentUser?.id != userId) {
-      throw StateError('Sign in again to update your profile.');
-    }
-
-    return _supabase
-        .from('members')
-        .update({
-          'first_name': ?firstName,
-          'last_name': ?lastName,
-          'phone': ?phone,
-          'address': ?address,
-        })
-        .eq('user_id', userId)
-        .select()
-        .single();
   }
 
   // Loan applications operations
@@ -96,6 +73,7 @@ class DatabaseService {
   }
 
   Future<void> createLoanApplication(Map<String, dynamic> data) async {
+    requireLiveLoanOperations();
     await _supabase.from('loan_applications').insert(data);
   }
 
@@ -106,7 +84,9 @@ class DatabaseService {
     required List<SelectedLoanDocument> documents,
     required int tenureMonths,
     void Function(String)? onProgress,
+    bool participantsDemo = false,
   }) async {
+    requireLiveLoanOperations(participantsDemo: participantsDemo);
     await LoanDocumentUploadService(client: _supabase).submit(
       applicationId: applicationId,
       loanType: loanType,
@@ -114,6 +94,7 @@ class DatabaseService {
       documents: documents,
       tenureMonths: tenureMonths,
       onProgress: onProgress,
+      participantsDemo: participantsDemo,
     );
   }
 

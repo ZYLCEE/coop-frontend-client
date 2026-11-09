@@ -77,6 +77,34 @@ void main() {
     },
   );
 
+  test(
+    'Calculator preserves fractional policy rates for supported tenures',
+    () {
+      for (final months in [3, 6, 12, 24]) {
+        final result = LoanCalculatorService().calculate(
+          principal: 10000,
+          months: months,
+          loanType: LoanType.regular,
+          baseInterestRatePercent: 1.55,
+        );
+        expect(result.totalInterest, closeTo(155 * months, 0.000001));
+        expect(result.paymentDates, hasLength(months));
+        expect(
+          LoanCalculatorService.formatPercentage(result.interestRate),
+          '1.55% / month flat',
+        );
+        expect(
+          LoanCalculatorService.formatPercentage(
+            result.interestRate,
+            compact: true,
+          ),
+          '1.55%/mo',
+        );
+      }
+      expect(LoanCalculatorService.formatPercentage(2), '2% / month flat');
+    },
+  );
+
   test('Policy settings deserialize numeric database values and metadata', () {
     final policy = LoanPolicySettings.fromMap({
       'base_interest_rate': '1.5',
