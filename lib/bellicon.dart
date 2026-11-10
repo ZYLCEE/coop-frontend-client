@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
 import 'app_bottom_navigation_bar.dart';
+import 'co_maker_invitation_screen.dart';
+import 'services/database_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -11,6 +14,92 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   final List<NotificationItem> _notifications = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotifications();
+  }
+
+  Future<void> _loadNotifications() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      setState(() {
+        _loading = false;
+        _error = 'Sign in to view notifications.';
+      });
+      return;
+    }
+    try {
+      final rows = await DatabaseService().getNotifications(user.id);
+      if (!mounted) return;
+      _notifications
+        ..clear()
+        ..addAll(
+          rows.map((row) {
+            final data = row['data'];
+            final payload = data is Map
+                ? Map<String, dynamic>.from(data)
+                : null;
+            final type = row['type']?.toString() ?? 'info';
+            final date = DateTime.tryParse(row['created_at']?.toString() ?? '');
+            return NotificationItem(
+              id: 0,
+              databaseId: row['id']?.toString(),
+              title: row['title']?.toString() ?? 'Notification',
+              timestamp: date == null ? '' : _formatNotificationDate(date),
+              description: row['message']?.toString() ?? '',
+              actionText: type == 'co_maker_invitation'
+                  ? 'Review Invitation'
+                  : null,
+              icon: type == 'co_maker_invitation'
+                  ? Icons.handshake_outlined
+                  : Icons.notifications_outlined,
+              iconColor: AppTheme.primaryGreen,
+              iconBgColor: AppTheme.primaryGreen.withOpacity(0.1),
+              isHighlighted:
+                  type == 'co_maker_invitation' && row['read'] != true,
+              type: type,
+              data: payload,
+            );
+          }),
+        );
+      setState(() {
+        _loading = false;
+        _error = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Unable to load notifications. Please try again.';
+      });
+    }
+  }
+
+  Future<void> _openNotification(NotificationItem notification) async {
+    if (notification.type == 'co_maker_invitation') {
+      final requestId = notification.data?['request_id'];
+      if (requestId is! String || requestId.isEmpty) return;
+      final notificationId = notification.databaseId;
+      if (notificationId != null) {
+        try {
+          await DatabaseService().markNotificationAsRead(notificationId);
+        } catch (_) {
+          // The invitation page still performs its own authorization check.
+        }
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => CoMakerInvitationReviewScreen(requestId: requestId),
+        ),
+      );
+      if (mounted) await _loadNotifications();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,18 +113,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(AppTheme.spacingL),
                 child: Column(
-                  children: _notifications.isEmpty
-                      ? [const Text('No notification data loaded.')]
+                  children: _loading
+                      ? [
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: CircularProgressIndicator(),
+                          ),
+                        ]
+                      : _error != null
+                      ? [
+                          Text(_error!),
+                          TextButton(
+                            onPressed: _loadNotifications,
+                            child: const Text('Retry'),
+                          ),
+                        ]
+                      : _notifications.isEmpty
+                      ? [const Text('No notifications.')]
                       : _notifications.map((notification) {
                           return Padding(
                             padding: const EdgeInsets.only(
                               bottom: AppTheme.spacingM,
                             ),
-                            child: notification.isHighlighted
-                                ? HighlightedNotificationCard(
-                                    notification: notification,
-                                  )
-                                : NotificationCard(notification: notification),
+                            child: NotificationCard(
+                              notification: notification,
+                              onAction: notification.actionText == null
+                                  ? null
+                                  : () => _openNotification(notification),
+                            ),
                           );
                         }).toList(),
                 ),
@@ -59,6 +164,9 @@ class NotificationItem {
   final Color iconColor;
   final Color iconBgColor;
   final bool isHighlighted;
+  final String? databaseId;
+  final String? type;
+  final Map<String, dynamic>? data;
 
   NotificationItem({
     required this.id,
@@ -70,7 +178,15 @@ class NotificationItem {
     required this.iconColor,
     required this.iconBgColor,
     required this.isHighlighted,
+    this.databaseId,
+    this.type,
+    this.data,
   });
+}
+
+String _formatNotificationDate(DateTime date) {
+  final local = date.toLocal();
+  return '${local.month}/${local.day}/${local.year} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
 }
 
 class NotificationAppBar extends StatelessWidget {
@@ -120,7 +236,13 @@ class NotificationAppBar extends StatelessWidget {
 class NotificationCard extends StatelessWidget {
   final NotificationItem notification;
 
-  const NotificationCard({super.key, required this.notification});
+  const NotificationCard({
+    super.key,
+    required this.notification,
+    this.onAction,
+  });
+
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -177,6 +299,11 @@ class NotificationCard extends StatelessWidget {
                     height: 1.4,
                   ),
                 ),
+                if (onAction != null && notification.actionText != null)
+                  TextButton(
+                    onPressed: onAction,
+                    child: Text(notification.actionText!),
+                  ),
               ],
             ),
           ),

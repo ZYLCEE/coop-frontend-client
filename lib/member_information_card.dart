@@ -4,7 +4,10 @@ import 'app_theme.dart';
 import 'services/database_service.dart';
 
 class LiveMemberInformationCard extends StatefulWidget {
-  const LiveMemberInformationCard({super.key});
+  const LiveMemberInformationCard({super.key, this.snapshot, this.onLoaded});
+
+  final Map<String, dynamic>? snapshot;
+  final ValueChanged<Map<String, dynamic>>? onLoaded;
 
   @override
   State<LiveMemberInformationCard> createState() =>
@@ -15,11 +18,17 @@ class _LiveMemberInformationCardState extends State<LiveMemberInformationCard> {
   late Future<Map<String, dynamic>> _member;
 
   Future<Map<String, dynamic>> _loadMember() async {
+    final snapshot = widget.snapshot;
+    if (snapshot != null) return snapshot;
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) {
       throw StateError('Please sign in to view your member information.');
     }
-    return DatabaseService().getMember(user.id);
+    final member = await DatabaseService().getMember(user.id);
+    if (mounted && Supabase.instance.client.auth.currentUser?.id == user.id) {
+      widget.onLoaded?.call(member);
+    }
+    return member;
   }
 
   @override
@@ -31,10 +40,11 @@ class _LiveMemberInformationCardState extends State<LiveMemberInformationCard> {
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(AppTheme.spacingL),
       decoration: BoxDecoration(
         color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: FutureBuilder<Map<String, dynamic>>(
@@ -55,12 +65,23 @@ class _LiveMemberInformationCardState extends State<LiveMemberInformationCard> {
             );
           }
           final member = snapshot.data!;
+          final birthDate =
+              (member['date_of_birth'] ?? member['birth_date'])
+                  ?.toString()
+                  .trim() ??
+              '';
+          final institutionalEmail =
+              member['institutional_email']?.toString().trim() ?? '';
           final fields = <String, String>{
             'Full Name':
                 '${member['first_name'] ?? ''} ${member['last_name'] ?? ''}'
                     .trim(),
             'Member ID': member['member_id']?.toString() ?? '',
-            'Email Address': member['email']?.toString() ?? '',
+            if (birthDate.isNotEmpty) 'Birth Date': birthDate,
+            if (institutionalEmail.isNotEmpty)
+              'Institutional Email': institutionalEmail
+            else
+              'Email Address': member['email']?.toString() ?? '',
             'Contact Number': member['phone']?.toString() ?? '',
             'Department': member['department']?.toString() ?? '',
             'Registered Address': member['address']?.toString() ?? '',

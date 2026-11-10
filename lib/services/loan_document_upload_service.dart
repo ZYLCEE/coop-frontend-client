@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../loan_application_mode.dart';
 import '../models/loan_document.dart';
 
 class LoanDocumentUploadService {
@@ -15,7 +16,9 @@ class LoanDocumentUploadService {
     required List<SelectedLoanDocument> documents,
     required int tenureMonths,
     void Function(String)? onProgress,
+    bool participantsDemo = false,
   }) async {
+    requireLiveLoanOperations(participantsDemo: participantsDemo);
     validateLoanDocuments(documents, amount);
     final user = _client.auth.currentUser;
     if (user == null) throw StateError('Sign in before submitting documents.');

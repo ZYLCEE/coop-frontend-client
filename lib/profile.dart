@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'quickaccesssetupscreen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
+import 'responsive.dart';
 import 'app_bottom_navigation_bar.dart';
 import 'services/supabase_service.dart';
 import 'services/database_service.dart';
@@ -15,34 +18,53 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final DatabaseService _dbService = DatabaseService();
+  final _auth = Supabase.instance.client.auth;
+  late final StreamSubscription<AuthState> _authSubscription;
   Map<String, dynamic>? _userData;
-  bool _isLoading = true;
+  String? _userId;
+  bool _isLoading = false;
+  int _loadVersion = 0;
 
   @override
   void initState() {
     super.initState();
+    _authSubscription = _auth.onAuthStateChange.listen((_) {
+      if (_auth.currentUser?.id != _userId) _loadUserData();
+    });
     _loadUserData();
   }
 
-  Future<void> _loadUserData() async {
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
+  @override
+  void dispose() {
+    _authSubscription.cancel();
+    super.dispose();
+  }
 
-      final memberData = await _dbService.getMember(user.id);
-      if (mounted) {
-        setState(() {
-          _userData = memberData;
-          _isLoading = false;
-        });
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+  Future<void> _loadUserData() async {
+    final version = ++_loadVersion;
+    final userId = _auth.currentUser?.id;
+    setState(() {
+      _userId = userId;
+      _userData = null;
+      _isLoading = userId != null;
+    });
+    if (userId == null) return;
+
+    Map<String, dynamic>? member;
+    try {
+      member = await _dbService.getMember(userId);
+    } catch (_) {
+      // The screen offers a retry without showing backend error details.
     }
+    if (!mounted ||
+        version != _loadVersion ||
+        _auth.currentUser?.id != userId) {
+      return;
+    }
+    setState(() {
+      _userData = member;
+      _isLoading = false;
+    });
   }
 
   @override
@@ -58,12 +80,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ? const Center(child: CircularProgressIndicator())
                   : SingleChildScrollView(
                       physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.all(AppTheme.spacingL),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: Responsive.horizontalPadding(context),
+                        vertical: AppTheme.spacingL,
+                      ),
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          ProfileHeaderCard(userData: _userData),
-                          const SizedBox(height: AppTheme.spacingL),
-                          PersonalInformationCard(userData: _userData),
+                          if (_userData case final member?) ...[
+                            ProfileHeaderCard(userData: member),
+                            const SizedBox(height: AppTheme.spacingL),
+                            PersonalInformationCard(userData: member),
+                          ] else ...[
+                            Center(
+                              child: Text(
+                                _userId == null
+                                    ? 'Sign in to view your profile.'
+                                    : 'Unable to load your profile.',
+                              ),
+                            ),
+                            if (_userId != null)
+                              TextButton(
+                                onPressed: _loadUserData,
+                                child: const Text('Retry'),
+                              ),
+                          ],
                           const SizedBox(height: AppTheme.spacingL),
                           const SettingsMenuCard(),
                           const SizedBox(height: AppTheme.spacingL),
@@ -112,20 +153,23 @@ class ProfileHeaderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final firstName = userData?['first_name'] ?? 'Loading';
-    final lastName = userData?['last_name'] ?? '...';
-    final memberId = userData?['member_id'] ?? 'Loading';
-    final initials = [firstName, lastName]
-        .where((name) => name is String && name.trim().isNotEmpty)
-        .map((name) => (name as String).trim()[0])
+    final names = [
+      _profileValue(userData, 'first_name'),
+      _profileValue(userData, 'last_name'),
+    ].nonNulls;
+    final fullName = names.join(' ');
+    final initials = names
+        .map((name) => name.characters.first)
         .join()
         .toUpperCase();
+    final memberId = _profileValue(userData, 'member_id');
+    final status = _memberStatus(userData);
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: AppTheme.primaryGreen,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.elevatedCardShadow,
       ),
       child: Row(
@@ -154,24 +198,28 @@ class ProfileHeaderCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '$firstName $lastName',
+                  fullName.isEmpty ? 'Member profile' : fullName,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  memberId,
-                  style: const TextStyle(
-                    color: AppTheme.lightGrayGreen,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w400,
+                if (memberId != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    memberId,
+                    style: const TextStyle(
+                      color: AppTheme.lightGrayGreen,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
-                ),
-                const SizedBox(height: AppTheme.spacingS),
-                MemberBadge(status: userData?['status']),
+                ],
+                if (status != null) ...[
+                  const SizedBox(height: AppTheme.spacingS),
+                  MemberBadge(status: status),
+                ],
               ],
             ),
           ),
@@ -188,8 +236,8 @@ class MemberBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isActive = status == 'active';
-    final badgeColor = isActive ? AppTheme.accentGold : Colors.red;
+    final isActive = status == 'Active';
+    final badgeColor = isActive ? AppTheme.accentGold : AppTheme.danger;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -210,12 +258,14 @@ class MemberBadge extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          Text(
-            isActive ? 'Active Member' : 'Inactive',
-            style: TextStyle(
-              color: badgeColor,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              isActive ? 'Active Member' : status ?? '',
+              style: TextStyle(
+                color: badgeColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -224,6 +274,21 @@ class MemberBadge extends StatelessWidget {
   }
 }
 
+String? _profileValue(Map<String, dynamic>? member, String field) {
+  final value = member?[field];
+  if (value is! String) return null;
+  final text = value.trim();
+  return text.isEmpty ? null : text;
+}
+
+String? _memberStatus(Map<String, dynamic>? member) =>
+    switch (_profileValue(member, 'status')?.toLowerCase()) {
+      'active' => 'Active',
+      'inactive' => 'Inactive',
+      'suspended' => 'Suspended',
+      _ => null,
+    };
+
 class PersonalInformationCard extends StatelessWidget {
   final Map<String, dynamic>? userData;
 
@@ -231,16 +296,34 @@ class PersonalInformationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final phone = userData?['phone'] ?? 'N/A';
-    final email = userData?['email'] ?? 'N/A';
-    final address = userData?['address'] ?? 'N/A';
-    final dateJoined = userData?['date_joined'] ?? 'N/A';
+    final fullName = [
+      _profileValue(userData, 'first_name'),
+      _profileValue(userData, 'last_name'),
+    ].nonNulls.join(' ');
+    final memberId = _profileValue(userData, 'member_id');
+    final membershipType = _profileValue(userData, 'membership_type');
+    final department = _profileValue(userData, 'department');
+    final status = _memberStatus(userData);
+    final membership = {
+      'Member ID': ?memberId,
+      'Membership Type': ?membershipType,
+      'Department': ?department,
+      'Membership Status': ?status,
+      'Date Joined': _profileValue(userData, 'date_joined') ?? 'Not available',
+    };
+    final contact = {
+      'Full Name': fullName.isEmpty ? 'Not available' : fullName,
+      'Mobile Number': _profileValue(userData, 'phone') ?? 'Not available',
+      'Email Address': _profileValue(userData, 'email') ?? 'Not available',
+      'Residential Address':
+          _profileValue(userData, 'address') ?? 'Not available',
+    };
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.spacingL),
       decoration: BoxDecoration(
         color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
@@ -256,20 +339,51 @@ class PersonalInformationCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppTheme.spacingL),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ProfileInfoRow(label: 'Date Joined', value: dateJoined),
-              const Divider(color: AppTheme.divider, height: 1),
-              ProfileInfoRow(label: 'Mobile', value: phone),
-              const Divider(color: AppTheme.divider, height: 1),
-              ProfileInfoRow(label: 'Email', value: email),
-              const Divider(color: AppTheme.divider, height: 1),
-              ProfileInfoRow(label: 'Address', value: address),
-            ],
+          _ProfileInfoSection(
+            title: 'Membership · Read only',
+            fields: membership,
+          ),
+          const SizedBox(height: AppTheme.spacingL),
+          _ProfileInfoSection(
+            title: 'Name and contact information · Read only',
+            fields: contact,
+          ),
+          const Divider(color: AppTheme.divider, height: 1),
+          const SizedBox(height: AppTheme.spacingM),
+          const Text(
+            'Need to update your information?',
+            style: AppTheme.bodyBold,
+          ),
+          const SizedBox(height: AppTheme.spacingXS),
+          const Text(
+            'To update or correct your registered information, visit the CSUCC '
+            'cooperative office and ask authorized staff for assistance.',
+            style: AppTheme.bodyRegular,
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ProfileInfoSection extends StatelessWidget {
+  const _ProfileInfoSection({required this.title, required this.fields});
+
+  final String title;
+  final Map<String, String> fields;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(title, style: AppTheme.captionBold),
+        for (final field in fields.entries) ...[
+          if (field.key != fields.keys.first)
+            const Divider(color: AppTheme.divider, height: 1),
+          ProfileInfoRow(label: field.key, value: field.value),
+        ],
+      ],
     );
   }
 }
@@ -313,12 +427,29 @@ class ProfileInfoRow extends StatelessWidget {
 class SettingsMenuCard extends StatelessWidget {
   const SettingsMenuCard({super.key});
 
+  void _showAvailability(BuildContext context, String title, String message) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        scrollable: true,
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
@@ -326,7 +457,11 @@ class SettingsMenuCard extends StatelessWidget {
           SettingsMenuItem(
             icon: Icons.notifications_none,
             title: 'Notification Preferences',
-            onTap: () {},
+            onTap: () => _showAvailability(
+              context,
+              'Notification Preferences',
+              'Notification preferences are currently unavailable in the app.',
+            ),
           ),
           const Divider(color: AppTheme.divider, height: 1, indent: 56),
           SettingsMenuItem(
@@ -341,7 +476,12 @@ class SettingsMenuCard extends StatelessWidget {
           SettingsMenuItem(
             icon: Icons.description,
             title: 'Download Loan Statement',
-            onTap: () {},
+            onTap: () => _showAvailability(
+              context,
+              'Download Loan Statement',
+              'Loan statement downloads are currently unavailable in the app. '
+                  'Contact the cooperative office to request a statement.',
+            ),
           ),
         ],
       ),
@@ -403,7 +543,7 @@ class SignOutButton extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sign out failed: ${error.toString()}'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppTheme.danger,
           ),
         );
       }
@@ -422,7 +562,7 @@ class SignOutButton extends StatelessWidget {
           side: const BorderSide(color: AppTheme.dangerBorder, width: 1),
           padding: const EdgeInsets.symmetric(vertical: 16),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(AppTheme.buttonBorderRadius),
           ),
         ),
         child: Row(

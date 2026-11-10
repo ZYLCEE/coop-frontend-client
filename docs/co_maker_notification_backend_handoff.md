@@ -1,0 +1,7 @@
+# Co-maker request handoff
+
+UX-09A keeps request state in a single demo application flow. A fictional inbox uses the existing notification card. It does not feed the Dashboard bell. Review Request marks the local entry read and opens the assigned fictional co-maker’s read-only agreement and consent flow. The inbox shows the terminal demo response. The review omits real borrower identifiers and contact details, witness details, and attachments. Live agreement and document access must be separately authorized for the assigned request.
+
+For live use, resolve the authenticated borrower and assigned co-maker server-side. Verify member lookup and co-maker eligibility, then create a participant request after borrower confirmation of a specific agreement version. Enforce ownership with RLS and scope agreement access to the borrower and assigned co-maker. Return status to the borrower and reserve acceptance or refusal for the assigned co-maker.
+
+Create the recipient's in-app notification in the same transaction or through a deduplicated delivery job. Optional phone push should reveal minimal information and require sign-in for details. Persist read state for the recipient. Enforce idempotency per application, participant and version, with expiry, cancellation, replacement and stale-version invalidation. Record consent or refusal against the authenticated actor and immutable agreement version, and make terminal decisions resistant to replay.

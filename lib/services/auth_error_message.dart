@@ -5,6 +5,11 @@ String getAuthErrorMessage(Object error) {
   final message = error is AuthException ? error.message : error.toString();
   final normalizedMessage = message.toLowerCase();
 
+  if (normalizedMessage.contains('invalid api key') ||
+      normalizedMessage.contains('invalid api_key')) {
+    return 'Supabase rejected the project key. Check SUPABASE_ANON_KEY in the app’s .env file.';
+  }
+
   if (normalizedMessage.contains('invalid_credentials') ||
       normalizedMessage.contains('invalid login credential')) {
     return 'No account found or the password is incorrect.';

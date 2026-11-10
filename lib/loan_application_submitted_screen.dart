@@ -36,7 +36,7 @@ class _LoanApplicationSubmittedScreenState
     final processingTime = ApplicationService.getExpectedProcessingTime();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F5F4),
+      backgroundColor: AppTheme.background,
       appBar: _buildAppBar(),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -154,7 +154,7 @@ class ReferenceCard extends StatelessWidget {
       padding: const EdgeInsets.all(AppTheme.spacingL),
       decoration: BoxDecoration(
         color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
@@ -216,7 +216,7 @@ class ProcessingTimeCard extends StatelessWidget {
       padding: const EdgeInsets.all(AppTheme.spacingL),
       decoration: BoxDecoration(
         color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Row(
@@ -286,7 +286,7 @@ class NextStepsCard extends StatelessWidget {
           padding: const EdgeInsets.all(AppTheme.spacingL),
           decoration: BoxDecoration(
             color: AppTheme.cardWhite,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
             boxShadow: AppTheme.cardShadow,
           ),
           child: Column(

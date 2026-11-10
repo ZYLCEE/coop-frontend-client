@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_theme.dart';
 import 'quickaccesssetupscreen.dart';
 import 'services/supabase_service.dart';
 import 'services/auth_error_message.dart';
@@ -69,9 +70,9 @@ class _ConfirmPassScreenState extends State<ConfirmPassScreen> {
     if (_hasUppercase) score++;
     if (_hasLowercase) score++;
     if (_hasNumber) score++;
-    if (score <= 1) return Colors.red;
-    if (score < 4) return Colors.orange;
-    return Colors.green;
+    if (score <= 1) return AppTheme.danger;
+    if (score < 4) return AppTheme.accentGold;
+    return AppTheme.positiveGreen;
   }
 
   bool get _isFormValid =>
@@ -97,7 +98,7 @@ class _ConfirmPassScreenState extends State<ConfirmPassScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(getAuthErrorMessage(error)),
-          backgroundColor: Colors.red,
+          backgroundColor: AppTheme.danger,
         ),
       );
     } finally {

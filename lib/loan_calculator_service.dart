@@ -154,7 +154,7 @@ class LoanCalculatorService {
 
     return LoanComputation(
       principal: principal,
-      interestRate: interestRate * 100, // Convert to percentage
+      interestRate: baseInterestRatePercent,
       totalInterest: totalInterest,
       processingFee: processingFee,
       notarialFee: notarialFee,
@@ -185,7 +185,10 @@ class LoanCalculatorService {
     return '₱${amount.toStringAsFixed(2)}';
   }
 
-  static String formatPercentage(double rate) {
-    return '${rate.toStringAsFixed(0)}% / month flat';
+  static String formatPercentage(double rate, {bool compact = false}) {
+    final percentage = rate % 1 == 0
+        ? rate.toStringAsFixed(0)
+        : rate.toString();
+    return compact ? '$percentage%/mo' : '$percentage% / month flat';
   }
 }

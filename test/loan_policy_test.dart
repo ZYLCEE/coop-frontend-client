@@ -59,6 +59,104 @@ void main() {
     );
     expect(find.byType(TextField), findsNWidgets(8));
   });
+
+  testWidgets('Verify OTP responds to input after the resend timer expires', (
+    tester,
+  ) async {
+    final controllers = List.generate(8, (_) => TextEditingController());
+    final focusNodes = List.generate(8, (_) => FocusNode());
+    addTearDown(() {
+      for (final controller in controllers) {
+        controller.dispose();
+      }
+      for (final focusNode in focusNodes) {
+        focusNode.dispose();
+      }
+    });
+
+    var codeComplete = false;
+    var verified = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) => Scaffold(
+            body: Column(
+              children: [
+                OtpInputFields(
+                  controllers: controllers,
+                  focusNodes: focusNodes,
+                  onChanged: (_, _) {
+                    setState(() {
+                      codeComplete = controllers.every(
+                        (controller) => controller.text.isNotEmpty,
+                      );
+                    });
+                  },
+                ),
+                const OtpTimer(
+                  remainingSeconds: 0,
+                  canResend: true,
+                  onResend: _ignoreResend,
+                ),
+                PrimaryButton(
+                  isEnabled: codeComplete,
+                  onPressed: () => verified = true,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+      isNull,
+    );
+    for (var index = 0; index < controllers.length; index++) {
+      await tester.enterText(find.byType(TextField).at(index), '$index');
+    }
+    await tester.pump();
+
+    final verifyButton = tester.widget<ElevatedButton>(
+      find.widgetWithText(ElevatedButton, 'Verify OTP'),
+    );
+    expect(verifyButton.onPressed, isNotNull);
+    await tester.tap(find.text('Verify OTP'));
+    expect(verified, isTrue);
+  });
+
+  testWidgets('OTP input changes notify the verification screen immediately', (
+    tester,
+  ) async {
+    final controllers = List.generate(8, (_) => TextEditingController());
+    final focusNodes = List.generate(8, (_) => FocusNode());
+    addTearDown(() {
+      for (final controller in controllers) {
+        controller.dispose();
+      }
+      for (final focusNode in focusNodes) {
+        focusNode.dispose();
+      }
+    });
+
+    var changes = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: OtpInputFields(
+            controllers: controllers,
+            focusNodes: focusNodes,
+            onChanged: (_, _) => changes++,
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField).first, '1');
+    expect(changes, 1);
+    expect(controllers.first.text, '1');
+  });
   test(
     'Loan calculator applies the active policy interest and fee percentages',
     () {
@@ -74,6 +172,34 @@ void main() {
       expect(result.totalInterest, 2000);
       expect(result.processingFee, 150);
       expect(result.retentionFee, 50);
+    },
+  );
+
+  test(
+    'Calculator preserves fractional policy rates for supported tenures',
+    () {
+      for (final months in [3, 6, 12, 24]) {
+        final result = LoanCalculatorService().calculate(
+          principal: 10000,
+          months: months,
+          loanType: LoanType.regular,
+          baseInterestRatePercent: 1.55,
+        );
+        expect(result.totalInterest, closeTo(155 * months, 0.000001));
+        expect(result.paymentDates, hasLength(months));
+        expect(
+          LoanCalculatorService.formatPercentage(result.interestRate),
+          '1.55% / month flat',
+        );
+        expect(
+          LoanCalculatorService.formatPercentage(
+            result.interestRate,
+            compact: true,
+          ),
+          '1.55%/mo',
+        );
+      }
+      expect(LoanCalculatorService.formatPercentage(2), '2% / month flat');
     },
   );
 
@@ -97,3 +223,5 @@ void main() {
     expect(policy.loanProcessingTime, '3–5');
   });
 }
+
+void _ignoreResend() {}

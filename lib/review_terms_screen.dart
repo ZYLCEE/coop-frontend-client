@@ -1,21 +1,22 @@
+import 'loan_application_flow.dart';
+import 'widgets/loan_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'email_otp_verification_screen.dart';
-import 'models/loan_document.dart';
+import 'models/loan_agreement_snapshot.dart';
+import 'demo_loan_consent_screen.dart';
+import 'co_maker_invitation_screen.dart';
 
 class ReviewTermsScreen extends StatefulWidget {
-  final double loanAmount;
-  final String loanType;
-  final int tenure;
-  final List<SelectedLoanDocument> documents;
+  final LoanApplicationFlow flow;
 
   const ReviewTermsScreen({
     super.key,
-    required this.loanAmount,
-    required this.loanType,
-    this.tenure = 12,
-    this.documents = const [],
+    required this.flow,
+    required this.snapshot,
   });
+
+  final LoanAgreementSnapshot snapshot;
 
   @override
   State<ReviewTermsScreen> createState() => _ReviewTermsScreenState();
@@ -29,8 +30,27 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.flow.participantsDemo) {
+      return DemoLoanConsentScreen(
+        key: ValueKey(widget.snapshot),
+        flow: widget.flow,
+        snapshot: widget.snapshot,
+      );
+    }
+    if (widget.flow.previewOnly) {
+      return BorrowerAgreementPreviewScreen(
+        flow: widget.flow,
+        snapshot: widget.snapshot,
+      );
+    }
+    if (widget.flow.requireCoMaker) {
+      return BorrowerCoMakerInvitationScreen(
+        flow: widget.flow,
+        snapshot: widget.snapshot,
+      );
+    }
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F5F4),
+      backgroundColor: AppTheme.background,
       appBar: _buildAppBar(),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -39,7 +59,10 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const LoanProgressIndicator(currentStep: 2),
+              LoanProgressIndicator.forApplication(
+                LoanApplicationStep.review,
+                participantsDemo: false,
+              ),
               const SizedBox(height: AppTheme.spacingL),
               const TermsCard(),
               const SizedBox(height: AppTheme.spacingL),
@@ -77,19 +100,10 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
               PrimaryButton(
                 isEnabled: _isValidated,
                 onPressed: _isValidated
-                    ? () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => EmailOtpVerificationScreen(
-                              loanAmount: widget.loanAmount,
-                              loanType: widget.loanType,
-                              tenure: widget.tenure,
-                              documents: widget.documents,
-                            ),
-                          ),
-                        );
-                      }
+                    ? () => widget.flow.push(
+                        context,
+                        (_) => EmailOtpVerificationScreen(flow: widget.flow),
+                      )
                     : null,
               ),
               const SizedBox(height: AppTheme.spacingXL),
@@ -125,82 +139,6 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
   }
 }
 
-class LoanProgressIndicator extends StatelessWidget {
-  final int currentStep;
-
-  const LoanProgressIndicator({super.key, required this.currentStep});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _buildStep('Loan Details', 0, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 0
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Documents', 1, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 1
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Review', 2, currentStep),
-      ],
-    );
-  }
-
-  Widget _buildStep(String label, int step, int currentStep) {
-    final isActive = step == currentStep;
-    final isCompleted = step < currentStep;
-
-    return Column(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: isCompleted
-                ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : Text(
-                    '${step + 1}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFF7D8A82),
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class TermsCard extends StatelessWidget {
   const TermsCard({super.key});
 
@@ -210,7 +148,7 @@ class TermsCard extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Column(

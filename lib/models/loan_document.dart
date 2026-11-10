@@ -1,10 +1,31 @@
 import 'dart:typed_data';
 
+const legacyCollateralRequiredAbove = 200000.0;
+const demoCollateralMinimum = 200000.0;
+
 enum LoanDocumentKind { payslip, validId, collateral, supporting }
 
 enum DocumentSource { camera, gallery, files }
 
 extension LoanDocumentLabels on LoanDocumentKind {
+  bool isVisibleFor({required double amount, required bool participantsDemo}) =>
+      !participantsDemo ||
+      this != LoanDocumentKind.collateral ||
+      amount >= demoCollateralMinimum;
+
+  bool isRequiredFor({
+    required double amount,
+    required double collateralRequiredAbove,
+    bool participantsDemo = false,
+  }) => switch (this) {
+    LoanDocumentKind.payslip || LoanDocumentKind.validId => true,
+    LoanDocumentKind.collateral =>
+      participantsDemo
+          ? isVisibleFor(amount: amount, participantsDemo: true)
+          : amount > collateralRequiredAbove,
+    LoanDocumentKind.supporting => false,
+  };
+
   String get label => switch (this) {
     LoanDocumentKind.payslip => 'Pay Slip',
     LoanDocumentKind.validId => 'Valid Identification',
@@ -116,7 +137,8 @@ void validateLoanDocuments(
     throw StateError('Please attach your latest payslip.');
   if (!kinds.contains(LoanDocumentKind.validId))
     throw StateError('Please attach a valid identification document.');
-  if (amount > 200000 && !kinds.contains(LoanDocumentKind.collateral)) {
+  if (amount > legacyCollateralRequiredAbove &&
+      !kinds.contains(LoanDocumentKind.collateral)) {
     throw StateError(
       'A collateral document is required for loans over ₱200,000.',
     );

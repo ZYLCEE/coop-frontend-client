@@ -30,7 +30,7 @@ class AppTheme {
   static const Color darkOlive = Color(0xFF2D5A3D);
 
   // Border Radius
-  static const double cardBorderRadius = 18.0;
+  static const double cardBorderRadius = 20.0;
   static const double buttonBorderRadius = 16.0;
   static const double pillBorderRadius = 999.0;
   static const double iconContainerRadius = 12.0;
@@ -104,26 +104,26 @@ class AppTheme {
 
   // Shadows
   static List<BoxShadow> get cardShadow => [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.05),
-          blurRadius: 10,
-          offset: const Offset(0, 2),
-        ),
-      ];
+    BoxShadow(
+      color: Colors.black.withOpacity(0.05),
+      blurRadius: 10,
+      offset: const Offset(0, 2),
+    ),
+  ];
 
   static List<BoxShadow> get elevatedCardShadow => [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.08),
-          blurRadius: 15,
-          offset: const Offset(0, 4),
-        ),
-      ];
+    BoxShadow(
+      color: Colors.black.withOpacity(0.08),
+      blurRadius: 15,
+      offset: const Offset(0, 4),
+    ),
+  ];
 
   static List<BoxShadow> get navBarShadow => [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.05),
-          blurRadius: 10,
-          offset: const Offset(0, -2),
-        ),
-      ];
+    BoxShadow(
+      color: Colors.black.withOpacity(0.05),
+      blurRadius: 10,
+      offset: const Offset(0, -2),
+    ),
+  ];
 }

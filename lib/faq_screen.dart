@@ -35,27 +35,32 @@ class FAQScreen extends StatelessWidget {
           children: [
             _buildFAQItem(
               question: 'How do I apply for a loan?',
-              answer: 'Members can apply through the dashboard\'s "Apply for a Loan" button or visit the cooperative office.',
+              answer:
+                  'Members can apply through the dashboard\'s "Apply for a Loan" button or visit the cooperative office.',
             ),
             const SizedBox(height: AppTheme.spacingM),
             _buildFAQItem(
               question: 'Can I have multiple loans?',
-              answer: 'Yes. Qualified members may apply for Regular, Educational, Emergency, and other available loan products depending on eligibility.',
+              answer:
+                  'Yes. Qualified members may apply for Regular, Educational, Emergency, and other available loan products depending on eligibility.',
             ),
             const SizedBox(height: AppTheme.spacingM),
             _buildFAQItem(
               question: 'How do I pay my loan?',
-              answer: 'Payments can be made through the cooperative cashier or accredited payment channels.',
+              answer:
+                  'Payments can be made through the cooperative cashier or accredited payment channels.',
             ),
             const SizedBox(height: AppTheme.spacingM),
             _buildFAQItem(
               question: 'How do I update my information?',
-              answer: 'Please visit the cooperative office or contact the administrator.',
+              answer:
+                  'Please visit the cooperative office or contact the administrator.',
             ),
             const SizedBox(height: AppTheme.spacingM),
             _buildFAQItem(
-              question: 'Where can I download my loan statement?',
-              answer: 'Navigate to Profile > Download Loan Statement.',
+              question: 'How can I get my loan statement?',
+              answer:
+                  'Loan statement downloads are currently unavailable in the app. Contact the cooperative office to request a statement.',
             ),
           ],
         ),
@@ -67,7 +72,7 @@ class FAQScreen extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: ExpansionTile(

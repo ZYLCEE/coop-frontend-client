@@ -43,8 +43,6 @@ class DeviceSecurityService {
   }
 
   Future<DeviceSecurityStatus> check() async {
-    initialize();
-
     final platform = _platformName;
     if (platform == null) {
       return const DeviceSecurityStatus(
@@ -56,6 +54,8 @@ class DeviceSecurityService {
         risk: DeviceSecurityRisk.unavailable,
       );
     }
+
+    initialize();
 
     try {
       final isPhysicalDevice = await SafeDevice.isRealDevice;

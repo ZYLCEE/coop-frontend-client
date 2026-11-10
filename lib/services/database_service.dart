@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../loan_application_mode.dart';
 import '../models/loan_document.dart';
 import '../models/loan_policy.dart';
 import 'loan_document_upload_service.dart';
@@ -34,21 +35,27 @@ class DatabaseService {
     return response;
   }
 
-  Future<void> updateMember(String memberId, Map<String, dynamic> data) async {
-    await _supabase.from('members').update(data).eq('member_id', memberId);
-  }
-
   // Loan applications operations
   Future<List<Map<String, dynamic>>> getLoanApplications(String userId) async {
-    final member = await getMember(userId);
-    final response = await _supabase
-        .from('loan_applications')
-        .select(
-          '*, members(member_id, first_name, last_name, membership_type), loan_payments(payment_amount,payment_date)',
-        )
-        .eq('member_id', member['id'])
-        .order('date_submitted', ascending: false);
-    return response;
+    late final Map<String, dynamic> member;
+    try {
+      member = await getMember(userId);
+    } catch (_) {
+      throw const LoanHistoryLoadException('member account link');
+    }
+
+    try {
+      final response = await _supabase
+          .from('loan_applications')
+          .select(
+            '*, members(member_id, first_name, last_name, membership_type), loan_payments(payment_amount,payment_date)',
+          )
+          .eq('member_id', member['id'])
+          .order('date_submitted', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (_) {
+      throw const LoanHistoryLoadException('loan records');
+    }
   }
 
   Future<List<Map<String, dynamic>>> getMemberLoanDetails() async {
@@ -76,6 +83,7 @@ class DatabaseService {
   }
 
   Future<void> createLoanApplication(Map<String, dynamic> data) async {
+    requireLiveLoanOperations();
     await _supabase.from('loan_applications').insert(data);
   }
 
@@ -86,7 +94,9 @@ class DatabaseService {
     required List<SelectedLoanDocument> documents,
     required int tenureMonths,
     void Function(String)? onProgress,
+    bool participantsDemo = false,
   }) async {
+    requireLiveLoanOperations(participantsDemo: participantsDemo);
     await LoanDocumentUploadService(client: _supabase).submit(
       applicationId: applicationId,
       loanType: loanType,
@@ -94,6 +104,7 @@ class DatabaseService {
       documents: documents,
       tenureMonths: tenureMonths,
       onProgress: onProgress,
+      participantsDemo: participantsDemo,
     );
   }
 
@@ -241,4 +252,10 @@ class DatabaseService {
       },
     );
   }
+}
+
+class LoanHistoryLoadException implements Exception {
+  const LoanHistoryLoadException(this.stage);
+
+  final String stage;
 }

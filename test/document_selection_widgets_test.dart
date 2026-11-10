@@ -108,6 +108,12 @@ void main() {
               .onPressed !=
           null;
       expect(reviewEnabled(), isFalse);
+      expect(
+        find.textContaining('Required before review: Pay Slip'),
+        findsOneWidget,
+      );
+      expect(find.text('Required'), findsNWidgets(3));
+      expect(find.text('Optional'), findsOneWidget);
       await select(tester, 'Pay Slip *', 'Files');
       picker.cancel = true;
       await select(tester, 'Pay Slip *', 'Camera');
