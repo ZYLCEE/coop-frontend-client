@@ -26,6 +26,7 @@ class LoanAgreementSnapshot {
        policy = draft.policy!,
        profileConfirmed = draft.profileConfirmed,
        coMaker = draft.participants?.coMaker,
+       coMakerIdDocumentName = draft.participants?.coMakerIdDocument?.name,
        relationship = draft.participants?.relationship.trim() ?? '',
        witnessOne = draft.participants?.witnessOne.trim() ?? '',
        witnessTwo = draft.participants?.witnessTwo.trim() ?? '',
@@ -55,6 +56,7 @@ class LoanAgreementSnapshot {
 
   double get collateralRequiredAbove => policy.collateralRequiredAbove;
   final LoanCoMakerCandidate? coMaker;
+  final String? coMakerIdDocumentName;
   final String relationship;
   final String witnessOne;
   final String witnessTwo;

@@ -146,6 +146,9 @@ serve(async (request) => {
     if (action === 'create') {
       const applicationId = typeof input.application_id === 'string' ? input.application_id.trim() : ''
       const variants = normalizedMemberIds(input.co_maker_member_id)
+      const idDocumentPath = typeof input.co_maker_id_document_path === 'string'
+        ? input.co_maker_id_document_path.trim()
+        : ''
       const relationship = typeof input.relationship === 'string' ? input.relationship.trim() : ''
       const loanType = typeof input.loan_type === 'string'
         ? input.loan_type.trim().replace(/\s+Loan$/i, '')
@@ -153,12 +156,17 @@ serve(async (request) => {
       const tenure = Number(input.tenure_months)
       const amount = numeric(input.amount, 0.01)
       const details = input.loan_details
+      const validApplicationId = /^LA-\d{4}-\d{6}$/.test(applicationId)
+      const validDocumentPath = validApplicationId && new RegExp(
+        `^${actor.user.id}/${applicationId}/co_maker_id_[a-f0-9]{32}\\.(jpg|png|webp|heic|heif|pdf)$`,
+        'i',
+      ).test(idDocumentPath)
       const allowedLoanTypes = new Set([
         'Regular', 'Medical', 'Educational', 'Emergency', 'Business', 'Calamity',
         'Multi-Purpose', 'Quick', 'Livelihood', 'Appliance', 'Birthday',
         'Anniversary', 'Fiesta', 'Bonus', 'Collateral', 'Mortuary', 'Subsistence', 'ASSME',
       ])
-      if (!/^LA-\d{4}-\d{6}$/.test(applicationId) || !variants ||
+      if (!validApplicationId || !variants || !validDocumentPath ||
           relationship.length < 1 || relationship.length > 100 ||
           !allowedLoanTypes.has(loanType) || amount === null ||
           !Number.isInteger(tenure) || tenure < 1 || tenure > 360 ||
@@ -168,7 +176,7 @@ serve(async (request) => {
 
       const { data: existing, error: existingError } = await admin
         .from('co_maker_requests')
-        .select('id, status, borrower_user_id, co_maker_member_id, loan_type, amount, tenure_months')
+        .select('id, status, borrower_user_id, co_maker_member_id, co_maker_id_document_path, loan_type, amount, tenure_months')
         .eq('application_id', applicationId)
         .maybeSingle()
       if (existingError) return unavailable()
@@ -181,6 +189,7 @@ serve(async (request) => {
         if (existing.borrower_user_id !== actor.user.id ||
             linkedMemberError || !linkedMembers || linkedMembers.length !== 1 ||
             linkedMembers[0].id !== existing.co_maker_member_id ||
+            existing.co_maker_id_document_path !== idDocumentPath ||
             existing.loan_type !== loanType || Number(existing.amount) !== amount ||
             existing.tenure_months !== tenure) {
           return respond({ error: 'This application reference is already in use.' }, 409)
@@ -214,6 +223,17 @@ serve(async (request) => {
         return respond({ error: 'Active co-maker member not found.' }, 404)
       }
 
+      const pathParts = idDocumentPath.split('/')
+      const documentName = pathParts.pop()!
+      const { data: uploadedDocuments, error: uploadedDocumentsError } = await admin
+        .storage
+        .from('loan-documents')
+        .list(pathParts.join('/'), { search: documentName })
+      if (uploadedDocumentsError) return unavailable()
+      if (!uploadedDocuments?.some((file) => file.name === documentName)) {
+        return respond({ error: 'Upload the co-maker ID document before inviting them.' }, 400)
+      }
+
       const borrowerName = displayName(actor.member)
       const coMakerName = displayName(candidate)
       const { data: created, error: createError } = await admin
@@ -226,6 +246,7 @@ serve(async (request) => {
           co_maker_user_id: candidate.user_id,
           borrower_name: borrowerName,
           co_maker_name: coMakerName,
+          co_maker_id_document_path: idDocumentPath,
           relationship,
           loan_type: loanType,
           amount,

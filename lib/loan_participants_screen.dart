@@ -5,8 +5,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
 import 'documents_disbursement_screen.dart';
 import 'loan_application_flow.dart';
+import 'models/loan_document.dart';
 import 'models/loan_participant.dart';
 import 'responsive.dart';
+import 'services/document_picker_service.dart';
 import 'services/loan_participant_lookup.dart';
 import 'widgets/loan_progress_indicator.dart';
 
@@ -23,7 +25,10 @@ class LoanParticipantsScreen extends StatefulWidget {
 class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _loading = false;
+  bool _pickingCoMakerDocument = false;
   String? _lookupError;
+  String? _documentError;
+  late final DocumentPickerService _documentPicker = DocumentPickerService();
 
   LoanParticipantsDraft get _participants =>
       widget.flow.draft.participants ??= LoanParticipantsDraft();
@@ -98,8 +103,42 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
     setState(() {
       _loading = false;
       _lookupError = error;
+      if (participants.coMaker?.memberId != candidate?.memberId) {
+        participants.coMakerIdDocument = null;
+        participants.coMakerIdDocumentPath = null;
+      }
       participants.coMaker = candidate;
     });
+  }
+
+  Future<void> _pickCoMakerIdDocument() async {
+    if (_pickingCoMakerDocument ||
+        _participants.coMaker == null ||
+        !widget.flow.canUseLiveSubmission) {
+      return;
+    }
+    setState(() {
+      _pickingCoMakerDocument = true;
+      _documentError = null;
+    });
+    try {
+      final document = await _documentPicker.pick(
+        LoanDocumentKind.supporting,
+        DocumentSource.files,
+      );
+      if (!mounted || !widget.flow.isActive) return;
+      if (document != null) {
+        setState(() {
+          _participants
+            ..coMakerIdDocument = document
+            ..coMakerIdDocumentPath = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _documentError = _documentMessage(error));
+    } finally {
+      if (mounted) setState(() => _pickingCoMakerDocument = false);
+    }
   }
 
   void _continue() {
@@ -118,6 +157,11 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
             ? 'A verified member lookup is required before continuing.'
             : 'Look up and select a demo co-maker.';
       });
+      return;
+    }
+    if (widget.flow.canUseLiveSubmission &&
+        _participants.coMakerIdDocument == null) {
+      setState(() => _documentError = 'Attach the co-maker ID document.');
       return;
     }
     widget.flow.push(
@@ -197,6 +241,9 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                               normalizeParticipantMemberId(selected.memberId)) {
                         participants.coMaker = null;
                         participants.relationship = '';
+                        participants.coMakerIdDocument = null;
+                        participants.coMakerIdDocumentPath = null;
+                        _documentError = null;
                       }
                       _lookupError = null;
                     }),
@@ -250,6 +297,56 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                       !widget.flow.participantsDemo
                           ? 'Active member account verified. Co-maker eligibility rules are still pending.'
                           : 'Fictional demo record. This is not a real member verification.',
+                      style: AppTheme.captionRegular,
+                    ),
+                  ],
+                  if (!widget.flow.participantsDemo &&
+                      !widget.flow.previewOnly) ...[
+                    const SizedBox(height: AppTheme.spacingM),
+                    InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'Co-maker ID Document',
+                        errorText: _documentError,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.badge_outlined),
+                          const SizedBox(width: AppTheme.spacingS),
+                          Expanded(
+                            child: Text(
+                              participants.coMakerIdDocument?.name ??
+                                  'PDF or image, up to 10 MB',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTheme.bodyRegular,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed:
+                                _pickingCoMakerDocument ||
+                                    candidate?.isVerifiedMember != true ||
+                                    !widget.flow.canUseLiveSubmission
+                                ? null
+                                : _pickCoMakerIdDocument,
+                            child: Text(
+                              _pickingCoMakerDocument
+                                  ? 'Selecting…'
+                                  : participants.coMakerIdDocument == null
+                                  ? 'Add Document'
+                                  : 'Replace',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.spacingS),
+                    Text(
+                      candidate?.isVerifiedMember == true
+                          ? 'Attach a clear PDF or image of the co-maker ID, up to 10 MB.'
+                          : 'Verify an active co-maker before adding their ID document.',
                       style: AppTheme.captionRegular,
                     ),
                   ],
@@ -416,4 +513,9 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
       ),
     ),
   );
+
+  String _documentMessage(Object error) {
+    if (error is StateError) return error.message.toString();
+    return 'Unable to select the co-maker ID document. Try again.';
+  }
 }

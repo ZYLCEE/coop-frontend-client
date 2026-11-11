@@ -44,7 +44,9 @@ class LoanDocumentUploadService {
     }
     final existing = await _client
         .from('loan_applications')
-        .select('id, member_id, amount, loan_type, tenure_months')
+        .select(
+          'id, member_id, amount, loan_type, tenure_months, co_maker_request_id, co_maker_id_document_path',
+        )
         .eq('application_id', applicationId)
         .maybeSingle();
     if (existing != null) {
@@ -57,6 +59,10 @@ class LoanDocumentUploadService {
           existing['loan_type'] == type &&
           double.tryParse('${existing['amount']}') == amount &&
           existing['tenure_months'] == tenureMonths &&
+          (existing['co_maker_request_id'] == null ||
+              existing['co_maker_id_document_path'] is String &&
+                  (existing['co_maker_id_document_path'] as String)
+                      .isNotEmpty) &&
           kinds.contains('payslip') &&
           kinds.contains('validId') &&
           (amount <= collateralRequiredAbove || kinds.contains('collateral'))) {

@@ -8,6 +8,8 @@ The existing standard build still goes from Loan Details to Documents, Summary, 
 
 A busy flag blocks repeat taps on the OTP screen. A retry in the same screen reuses its reference and checks for an existing matching application with required attachment kinds. The client attempts cleanup after a failed write. This is limited to the observed client behavior. Deployed RPC atomicity, storage cleanup policies, and cross-device deduplication still require staging verification.
 
+The live participant screen requires a verified active co-maker and an ID document file before continuing. The borrower uploads the document to the existing `loan-documents` bucket under their application folder. The invitation function validates the borrower-owned path and stores it on `co_maker_requests`; the accepted-request trigger copies both `co_maker_member_code` and `co_maker_id_document_path` onto `loan_applications`. The admin Consent & Witness evidence view must select those application fields and use authorized private-storage access to display the document. That admin view is not included in this Flutter client repository.
+
 ## Proposed backend contract
 
 **Lifecycle**

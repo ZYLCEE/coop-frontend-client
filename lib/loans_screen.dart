@@ -706,7 +706,8 @@ class _LoansScreenState extends State<LoansScreen> {
             final amount = _asDouble(loan['amount']);
             final monthly = _asDouble(loan['monthly_payment']);
             final tenure = _asInt(loan['tenure_months']);
-            final payments = loan['loan_payments'] is List
+            final paymentsAvailable = loan['loan_payments'] is List;
+            final payments = paymentsAvailable
                 ? (loan['loan_payments'] as List).whereType<Map>().toList()
                 : <Map>[];
             final paid = payments.fold<double>(
@@ -714,7 +715,9 @@ class _LoansScreenState extends State<LoansScreen> {
               (sum, payment) =>
                   sum + (_asDouble(payment['payment_amount']) ?? 0),
             );
-            final completedMonths = monthly != null && monthly > 0
+            final completedMonths = paymentsAvailable &&
+                    monthly != null &&
+                    monthly > 0
                 ? (paid / monthly).floor().clamp(0, tenure ?? 0)
                 : null;
             final releaseDate = DateTime.tryParse(
@@ -727,7 +730,7 @@ class _LoansScreenState extends State<LoansScreen> {
             final total = monthly != null && tenure != null
                 ? monthly * tenure
                 : null;
-            final outstanding = total == null
+            final outstanding = !paymentsAvailable || total == null
                 ? null
                 : (total - paid).clamp(0.0, double.infinity).toDouble();
             final statusColor = _getStatusColor(rawStatus);

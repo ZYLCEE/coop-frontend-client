@@ -18,6 +18,20 @@ import 'widgets/loan_agreement_preview.dart';
 CoMakerInvitationService _invitationService() =>
     CoMakerInvitationService(supabaseUrl: dotenv.env['SUPABASE_URL'] ?? '');
 
+ButtonStyle _loanActionButtonStyle({required bool enabled}) =>
+    ElevatedButton.styleFrom(
+      backgroundColor: enabled
+          ? AppTheme.primaryGreen
+          : AppTheme.lightGrayGreen,
+      disabledBackgroundColor: AppTheme.lightGrayGreen,
+      foregroundColor: Colors.white,
+      disabledForegroundColor: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTheme.buttonBorderRadius),
+      ),
+    );
+
 class BorrowerCoMakerInvitationScreen extends StatefulWidget {
   const BorrowerCoMakerInvitationScreen({
     super.key,
@@ -53,14 +67,17 @@ class _BorrowerCoMakerInvitationScreenState
   Future<void> _sendInvitation() async {
     if (_busy || !widget.flow.canUseLiveSubmission) return;
     final draft = widget.flow.draft;
+    final participants = draft.participants;
     final candidate = draft.participants?.coMaker;
+    final idDocument = participants?.coMakerIdDocument;
     final relationship = draft.participants?.relationship.trim() ?? '';
     if (candidate == null ||
         !candidate.isVerifiedMember ||
-        relationship.isEmpty) {
+        relationship.isEmpty ||
+        idDocument == null) {
       setState(
         () => _error =
-            'Verify an active co-maker and choose your relationship first.',
+            'Verify an active co-maker, attach their ID document, and choose your relationship first.',
       );
       return;
     }
@@ -70,10 +87,19 @@ class _BorrowerCoMakerInvitationScreenState
     });
     try {
       draft.applicationId ??= ApplicationService.generateReferenceNumber();
+      var idDocumentPath = participants!.coMakerIdDocumentPath;
+      if (idDocumentPath == null) {
+        idDocumentPath = await _invitationService().uploadCoMakerIdDocument(
+          applicationId: draft.applicationId!,
+          document: idDocument,
+        );
+        participants.coMakerIdDocumentPath = idDocumentPath;
+      }
       final result = await _invitationService().createRequest(
         applicationId: draft.applicationId!,
         coMaker: candidate,
         relationship: relationship,
+        coMakerIdDocumentPath: idDocumentPath,
         snapshot: widget.snapshot,
       );
       final id = result['request_id'];
@@ -131,10 +157,20 @@ class _BorrowerCoMakerInvitationScreenState
       ..coMakerRequestId = null;
     final participants = draft.participants;
     if (participants != null) {
+      final idDocumentPath = participants.coMakerIdDocumentPath;
+      if (idDocumentPath != null) {
+        try {
+          await _invitationService().removeCoMakerIdDocument(idDocumentPath);
+        } catch (_) {
+          // Do not block replacing a declined co-maker if storage cleanup fails.
+        }
+      }
       participants
         ..coMaker = null
         ..memberIdInput = ''
-        ..relationship = '';
+        ..relationship = ''
+        ..coMakerIdDocument = null
+        ..coMakerIdDocumentPath = null;
     }
     await widget.flow.push(
       context,
@@ -211,11 +247,13 @@ class _BorrowerCoMakerInvitationScreenState
               else if (_status == 'accepted')
                 ElevatedButton(
                   onPressed: _busy ? null : _continueToSubmission,
+                  style: _loanActionButtonStyle(enabled: !_busy),
                   child: const Text('Continue to Loan Submission'),
                 )
               else if (_status == 'rejected')
                 ElevatedButton(
                   onPressed: _busy ? null : _chooseAnotherCoMaker,
+                  style: _loanActionButtonStyle(enabled: !_busy),
                   child: const Text('Choose Another Co-Maker'),
                 )
               else if (_requestId != null)
@@ -246,6 +284,9 @@ class _BorrowerCoMakerInvitationScreenState
                   onPressed: _busy || !_acknowledged || !canInvite
                       ? null
                       : _sendInvitation,
+                  style: _loanActionButtonStyle(
+                    enabled: !_busy && _acknowledged && canInvite,
+                  ),
                   child: _busy
                       ? const CircularProgressIndicator()
                       : const Text('Send Co-Maker Invitation'),
@@ -482,12 +523,24 @@ class _CoMakerInvitationReviewScreenState
                       const SizedBox(height: AppTheme.spacingM),
                       ElevatedButton(
                         onPressed: _busy || !_acknowledged ? null : _accept,
+                        style: _loanActionButtonStyle(
+                          enabled: !_busy && _acknowledged,
+                        ),
                         child: _busy
                             ? const CircularProgressIndicator()
                             : const Text('Accept and Verify by Email'),
                       ),
-                      TextButton(
+                      OutlinedButton(
                         onPressed: _busy ? null : _reject,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.danger,
+                          side: const BorderSide(color: AppTheme.danger),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.buttonBorderRadius,
+                            ),
+                          ),
+                        ),
                         child: const Text('Reject Invitation'),
                       ),
                     ] else
@@ -669,6 +722,9 @@ class _CoMakerAcceptanceOtpScreenState
               onPressed: _busy || _token.length != _controllers.length
                   ? null
                   : _verify,
+              style: _loanActionButtonStyle(
+                enabled: !_busy && _token.length == _controllers.length,
+              ),
               child: _busy
                   ? const CircularProgressIndicator()
                   : const Text('Verify and Accept'),

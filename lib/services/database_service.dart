@@ -47,12 +47,45 @@ class DatabaseService {
     try {
       final response = await _supabase
           .from('loan_applications')
-          .select(
-            '*, members(member_id, first_name, last_name, membership_type), loan_payments(payment_amount,payment_date)',
-          )
+          .select()
           .eq('member_id', member['id'])
           .order('date_submitted', ascending: false);
-      return List<Map<String, dynamic>>.from(response);
+      final applications = List<Map<String, dynamic>>.from(response);
+      if (applications.isEmpty) return applications;
+
+      final applicationIds = applications
+          .map((application) => application['id'])
+          .whereType<String>()
+          .toList();
+      try {
+        final paymentRows = await _supabase
+            .from('loan_payments')
+            .select('loan_application_id, payment_amount, payment_date')
+            .inFilter('loan_application_id', applicationIds);
+        final paymentsByApplication = <String, List<Map<String, dynamic>>>{};
+        for (final row in List<Map<String, dynamic>>.from(paymentRows)) {
+          final applicationId = row['loan_application_id'] as String?;
+          if (applicationId == null) continue;
+          paymentsByApplication
+              .putIfAbsent(applicationId, () => <Map<String, dynamic>>[])
+              .add(row);
+        }
+        return applications
+            .map(
+              (application) => {
+                ...application,
+                'loan_payments':
+                    paymentsByApplication[application['id']] ??
+                    <Map<String, dynamic>>[],
+              },
+            )
+            .toList();
+      } catch (_) {
+        // Payment summaries are optional; keep loan selection/history available.
+        return applications
+            .map((application) => {...application, 'loan_payments': null})
+            .toList();
+      }
     } catch (_) {
       throw const LoanHistoryLoadException('loan records');
     }
@@ -76,7 +109,7 @@ class DatabaseService {
   Future<Map<String, dynamic>> getLoanApplication(String applicationId) async {
     final response = await _supabase
         .from('loan_applications')
-        .select('*, members(member_id, first_name, last_name, membership_type)')
+        .select('*, members(member_id, first_name, last_name)')
         .eq('application_id', applicationId)
         .single();
     return response;
@@ -139,7 +172,7 @@ class DatabaseService {
     final member = await getMember(userId);
     final response = await _supabase
         .from('savings_accounts')
-        .select('*, members(member_id, first_name, last_name, membership_type)')
+        .select('*, members(member_id, first_name, last_name)')
         .eq('member_id', member['id']);
     return response;
   }
@@ -147,7 +180,7 @@ class DatabaseService {
   Future<Map<String, dynamic>> getSavingsAccount(String accountNumber) async {
     final response = await _supabase
         .from('savings_accounts')
-        .select('*, members(member_id, first_name, last_name, membership_type)')
+        .select('*, members(member_id, first_name, last_name)')
         .eq('account_number', accountNumber)
         .single();
     return response;

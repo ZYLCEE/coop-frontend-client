@@ -1,7 +1,10 @@
+import 'dart:math';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../loan_calculator_service.dart';
 import '../models/loan_agreement_snapshot.dart';
+import '../models/loan_document.dart';
 import '../models/loan_participant.dart';
 
 class CoMakerInvitationService {
@@ -31,6 +34,7 @@ class CoMakerInvitationService {
     required String applicationId,
     required LoanCoMakerCandidate coMaker,
     required String relationship,
+    required String coMakerIdDocumentPath,
     required LoanAgreementSnapshot snapshot,
   }) async {
     _ensureMainProject();
@@ -38,6 +42,7 @@ class CoMakerInvitationService {
       'action': 'create',
       'application_id': applicationId,
       'co_maker_member_id': coMaker.memberId,
+      'co_maker_id_document_path': coMakerIdDocumentPath,
       'relationship': relationship,
       'loan_type': snapshot.loanType.label,
       'amount': snapshot.amount,
@@ -66,6 +71,48 @@ class CoMakerInvitationService {
         ),
       },
     });
+  }
+
+  Future<String> uploadCoMakerIdDocument({
+    required String applicationId,
+    required SelectedLoanDocument document,
+  }) async {
+    _ensureMainProject();
+    final user = _client.auth.currentUser;
+    if (user == null) throw StateError('Sign in before uploading documents.');
+    if (document.bytes.length > SelectedLoanDocument.maxBytes) {
+      throw StateError('Choose a file no larger than 10 MB.');
+    }
+    final nonce = List.generate(
+      16,
+      (_) => Random.secure().nextInt(256),
+    ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    final path =
+        '${user.id}/$applicationId/co_maker_id_$nonce.${document.extension}';
+    await _client.storage
+        .from('loan-documents')
+        .uploadBinary(
+          path,
+          document.bytes,
+          fileOptions: FileOptions(
+            contentType: document.contentType,
+            upsert: false,
+          ),
+        );
+    if (_client.auth.currentUser?.id != user.id) {
+      try {
+        await _client.storage.from('loan-documents').remove([path]);
+      } catch (_) {}
+      throw StateError('Your session changed. Please sign in again.');
+    }
+    return path;
+  }
+
+  Future<void> removeCoMakerIdDocument(String path) async {
+    _ensureMainProject();
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null || !path.startsWith('$userId/')) return;
+    await _client.storage.from('loan-documents').remove([path]);
   }
 
   Future<Map<String, dynamic>> getRequest(String requestId) async {

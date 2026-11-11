@@ -1,3 +1,5 @@
+import 'loan_document.dart';
+
 String normalizeParticipantMemberId(String input) =>
     input.trim().toUpperCase().replaceFirst(RegExp(r'^CSUCC-'), '');
 
@@ -22,6 +24,8 @@ class LoanParticipantsDraft {
   String memberIdInput = '';
   LoanCoMakerCandidate? coMaker;
   String relationship = '';
+  SelectedLoanDocument? coMakerIdDocument;
+  String? coMakerIdDocumentPath;
   String witnessOne = '';
   String witnessTwo = '';
 }

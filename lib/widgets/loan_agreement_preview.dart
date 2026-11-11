@@ -74,6 +74,11 @@ class LoanParticipantReviewCard extends StatelessWidget {
             'Relationship to borrower: ${snapshot.relationship}',
             style: AppTheme.bodyRegular,
           ),
+          if (snapshot.coMakerIdDocumentName != null)
+            Text(
+              'Co-maker ID document: ${snapshot.coMakerIdDocumentName}',
+              style: AppTheme.bodyRegular,
+            ),
           Text(
             localPreview
                 ? 'Local draft only. No invitation or consent has been recorded.'
