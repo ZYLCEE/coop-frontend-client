@@ -109,7 +109,7 @@ class WarningBanner extends StatelessWidget {
           const SizedBox(width: AppTheme.spacingM),
           Expanded(
             child: Text(
-              'If any details are incorrect or outdated, please visit the CSUCC Coop Admin office for a manual update.',
+              'You can edit your name, contact number, and address in Profile. For other corrections, contact the CSUCC Coop Admin office.',
               style: const TextStyle(
                 color: Color(0xFF8B7355),
                 fontSize: 13,

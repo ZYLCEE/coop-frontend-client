@@ -1,11 +1,14 @@
+import 'dart:math';
+
 import 'package:intl/intl.dart';
 import 'application_state.dart';
 
 class ApplicationService {
   static String generateReferenceNumber() {
     final year = DateTime.now().year;
-    final sequence = DateTime.now().millisecondsSinceEpoch % 1000000;
-    return 'LA-$year-${sequence.toString().padLeft(6, '0')}';
+    final random = Random.secure();
+    final sequence = List.generate(12, (_) => random.nextInt(10)).join();
+    return 'LA-$year-$sequence';
   }
 
   static String formatSubmissionDateTime() {

@@ -4,6 +4,7 @@ import 'app_theme.dart';
 import 'app_bottom_navigation_bar.dart';
 import 'profile_confirmation_screen.dart';
 import 'responsive.dart';
+import 'documents_screen.dart';
 import 'schedtracker.dart';
 import 'loan_calculator_service.dart';
 import 'services/database_service.dart';
@@ -414,7 +415,7 @@ class _LoansScreenState extends State<LoansScreen> {
     final filters = [
       'All',
       'Pending',
-      'Under Review',
+      'Returned',
       'Approved',
       'Active',
       'Overdue',
@@ -466,13 +467,14 @@ class _LoansScreenState extends State<LoansScreen> {
   }
 
   Widget _buildSummaryCards() {
-    final activeCount = _myLoans
-        .where((l) => l['status'] == 'released' || l['status'] == 'overdue')
+    final statuses = _myLoans.map(LoanEligibility.statusFor).toList();
+    final activeCount = statuses
+        .where((status) => status == 'released' || status == 'overdue')
         .length;
-    final pendingCount = _myLoans
-        .where((l) => l['status'] == 'pending' || l['status'] == 'under review')
+    final pendingCount = statuses
+        .where((status) => status == 'pending' || status == 'under review')
         .length;
-    final paidCount = _myLoans.where((l) => l['status'] == 'completed').length;
+    final paidCount = statuses.where((status) => status == 'completed').length;
 
     return Row(
       children: [
@@ -545,21 +547,22 @@ class _LoansScreenState extends State<LoansScreen> {
     final filteredLoans = _selectedFilter == 'All'
         ? _myLoans
         : _myLoans.where((loan) {
+            final status = LoanEligibility.statusFor(loan);
             switch (_selectedFilter) {
               case 'Pending':
-                return loan['status'] == 'pending';
-              case 'Under Review':
-                return loan['status'] == 'under review';
+                return status == 'pending' || status == 'under review';
+              case 'Returned':
+                return status == 'returned';
               case 'Approved':
-                return loan['status'] == 'approved';
+                return status == 'approved';
               case 'Active':
-                return loan['status'] == 'released';
+                return status == 'released';
               case 'Overdue':
-                return loan['status'] == 'overdue';
+                return status == 'overdue';
               case 'Fully Paid':
-                return loan['status'] == 'completed';
+                return status == 'completed';
               case 'Rejected':
-                return loan['status'] == 'rejected';
+                return status == 'rejected';
               default:
                 return true;
             }
@@ -592,37 +595,20 @@ class _LoansScreenState extends State<LoansScreen> {
           )
         else
           ...filteredLoans.map((loan) {
-            final rawStatus = '${loan['status'] ?? 'unknown'}';
+            final details = Loan.fromDatabase(loan);
+            final rawStatus = details.status;
             final status = _loanStatusLabel(rawStatus);
             final amount = _asDouble(loan['amount']);
             final monthly = _asDouble(loan['monthly_payment']);
             final tenure = _asInt(loan['tenure_months']);
-            final payments = loan['loan_payments'] is List
-                ? (loan['loan_payments'] as List).whereType<Map>().toList()
-                : <Map>[];
-            final paid = payments.fold<double>(
-              0,
-              (sum, payment) =>
-                  sum + (_asDouble(payment['payment_amount']) ?? 0),
-            );
-            final completedMonths = monthly != null && monthly > 0
-                ? (paid / monthly).floor().clamp(0, tenure ?? 0)
-                : null;
-            final releaseDate = DateTime.tryParse(
-              '${loan['date_released'] ?? ''}',
-            );
-            final nextDue =
-                releaseDate == null || completedMonths == null || tenure == null
-                ? null
-                : _formatDueDate(_addMonths(releaseDate, completedMonths + 1));
-            final total = monthly != null && tenure != null
-                ? monthly * tenure
-                : null;
-            final outstanding = total == null
-                ? null
-                : (total - paid).clamp(0.0, double.infinity).toDouble();
+            final hasSchedule = details.amortizationSchedule.isNotEmpty;
+            final nextDue = details.amortizationSchedule
+                .where((payment) => payment.status != PaymentStatus.completed)
+                .firstOrNull
+                ?.date;
             final statusColor = _getStatusColor(rawStatus);
             return Padding(
+              key: ValueKey(details.id),
               padding: EdgeInsets.only(bottom: Responsive.spacing(context, 16)),
               child: _buildLoanHistoryCard(
                 loan['loan_type'] ?? 'Unknown',
@@ -631,10 +617,12 @@ class _LoansScreenState extends State<LoansScreen> {
                 status,
                 statusColor,
                 amount,
-                outstanding,
+                hasSchedule ? details.outstandingBalance : null,
                 monthly,
-                nextDue,
-                completedMonths,
+                hasSchedule ? (nextDue ?? 'None') : null,
+                hasSchedule
+                    ? details.totalMonths - details.remainingMonths
+                    : null,
                 tenure,
               ),
             );
@@ -648,28 +636,8 @@ class _LoansScreenState extends State<LoansScreen> {
   int? _asInt(dynamic value) =>
       value is num ? value.toInt() : int.tryParse('$value');
 
-  String _loanTypeKey(String value) =>
-      value.trim().toLowerCase().replaceFirst(RegExp(r'\s+loan$'), '');
-
-  Map<String, dynamic>? _inProgressApplicationFor(LoanType type) {
-    final key = _loanTypeKey(type.label);
-    for (final loan in _myLoans) {
-      final status = '${loan['status'] ?? ''}'.toLowerCase();
-      if (_loanTypeKey('${loan['loan_type'] ?? ''}') == key &&
-          const {
-            'pending',
-            'under review',
-            'approved',
-            'released',
-            'overdue',
-          }.contains(status))
-        return loan;
-    }
-    return null;
-  }
-
   String _loanStatusLabel(String status) => switch (status.toLowerCase()) {
-    'under review' => 'Under Review',
+    'under review' => 'Returned',
     'released' => 'Active',
     'completed' => 'Fully Paid',
     'pending' => 'Pending',
@@ -679,17 +647,6 @@ class _LoansScreenState extends State<LoansScreen> {
     _ => status,
   };
 
-  DateTime _addMonths(DateTime date, int months) {
-    final monthIndex = date.month - 1 + months;
-    final year = date.year + monthIndex ~/ 12;
-    final month = monthIndex % 12 + 1;
-    final lastDay = DateTime(year, month + 1, 0).day;
-    return DateTime(year, month, date.day.clamp(1, lastDay));
-  }
-
-  String _formatDueDate(DateTime date) =>
-      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-
   Color _getStatusColor(String? status) {
     switch (status) {
       case 'approved':
@@ -698,6 +655,7 @@ class _LoansScreenState extends State<LoansScreen> {
         return const Color(0xFF206A3B);
       case 'pending':
       case 'under review':
+      case 'returned':
         return const Color(0xFFE67E22);
       case 'rejected':
         return const Color(0xFFD32F2F);
@@ -725,7 +683,9 @@ class _LoansScreenState extends State<LoansScreen> {
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const LoanDetailsScreen()),
+          MaterialPageRoute(
+            builder: (_) => LoanDetailsScreen(applicationId: loanId),
+          ),
         );
       },
       child: Container(
@@ -838,6 +798,25 @@ class _LoansScreenState extends State<LoansScreen> {
                 principal == null
                     ? const SizedBox.shrink()
                     : _buildPendingCardContent(principal)
+              else if (status == 'Returned')
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Corrections are required before this application can continue.',
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const DocumentsScreen(),
+                        ),
+                      ),
+                      child: const Text('View requirements and resubmit'),
+                    ),
+                  ],
+                )
               else if (status == 'Approved')
                 principal == null
                     ? const SizedBox.shrink()
@@ -1170,21 +1149,21 @@ class _LoansScreenState extends State<LoansScreen> {
     bool isActive,
   ) {
     final name = loanType.label;
-    final existingApplication = _inProgressApplicationFor(loanType);
+    final existingApplication = LoanEligibility.blockingApplication(
+      loanType,
+      _myLoans,
+    );
     final existingStatus = '${existingApplication?['status'] ?? ''}'
         .toLowerCase();
     final isOngoing =
-        LoanEligibility.isOngoing(loanType) ||
-        existingApplication != null ||
-        _isLoading ||
-        _myLoansError != null;
+        existingApplication != null || _isLoading || _myLoansError != null;
     final blockedLabel = _myLoansError != null
         ? 'History Unavailable'
         : _isLoading
         ? 'Checking Applications...'
         : switch (existingStatus) {
             'pending' => 'Application Pending',
-            'under review' => 'Under Review',
+            'under review' => 'Returned',
             'approved' => 'Approved',
             'released' || 'overdue' => 'Loan Active',
             _ => 'Ongoing Loan',
@@ -1331,14 +1310,15 @@ class _LoansScreenState extends State<LoansScreen> {
                     )
                   else if (!isActive)
                     ElevatedButton(
-                      onPressed: () {
-                        Navigator.push(
+                      onPressed: () async {
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) =>
                                 ProfileConfirmationScreen(loanType: loanType),
                           ),
                         );
+                        if (mounted) await _loadMyLoans();
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primaryGreen,

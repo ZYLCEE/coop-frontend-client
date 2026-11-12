@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'dashboard.dart';
 import 'application_service.dart';
-import 'application_state.dart';
 
-class LoanApplicationSubmittedScreen extends StatefulWidget {
+class LoanApplicationSubmittedScreen extends StatelessWidget {
   final String referenceNumber;
   final String submissionDateTime;
 
@@ -13,23 +12,6 @@ class LoanApplicationSubmittedScreen extends StatefulWidget {
     required this.referenceNumber,
     required this.submissionDateTime,
   });
-
-  @override
-  State<LoanApplicationSubmittedScreen> createState() =>
-      _LoanApplicationSubmittedScreenState();
-}
-
-class _LoanApplicationSubmittedScreenState
-    extends State<LoanApplicationSubmittedScreen> {
-  @override
-  void initState() {
-    super.initState();
-    _setPendingApplication();
-  }
-
-  Future<void> _setPendingApplication() async {
-    ApplicationState.setPendingApplication(true);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,8 +30,8 @@ class _LoanApplicationSubmittedScreenState
               const SuccessHeader(),
               const SizedBox(height: AppTheme.spacingXL),
               ReferenceCard(
-                referenceNumber: widget.referenceNumber,
-                submissionDateTime: widget.submissionDateTime,
+                referenceNumber: referenceNumber,
+                submissionDateTime: submissionDateTime,
               ),
               const SizedBox(height: AppTheme.spacingL),
               ProcessingTimeCard(processingTime: processingTime),

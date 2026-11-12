@@ -6,13 +6,15 @@ import 'application_service.dart';
 import 'services/supabase_service.dart';
 import 'services/database_service.dart';
 import 'models/loan_document.dart';
+import 'models/loan_consent_submission.dart';
 import 'loan_application_submitted_screen.dart';
 
 String maskEmailAddress(String email) {
   final normalized = email.trim();
   final separator = normalized.lastIndexOf('@');
-  if (separator <= 0 || separator == normalized.length - 1)
+  if (separator <= 0 || separator == normalized.length - 1) {
     return 'unavailable';
+  }
   final local = normalized.substring(0, separator);
   final domain = normalized.substring(separator + 1);
   final visible = local.substring(0, 1);
@@ -25,6 +27,7 @@ class EmailOtpVerificationScreen extends StatefulWidget {
   final String loanType;
   final int tenure;
   final List<SelectedLoanDocument> documents;
+  final LoanConsentSubmission? consent;
 
   const EmailOtpVerificationScreen({
     super.key,
@@ -32,6 +35,7 @@ class EmailOtpVerificationScreen extends StatefulWidget {
     required this.loanType,
     this.tenure = 12,
     this.documents = const [],
+    this.consent,
   });
 
   @override
@@ -102,18 +106,20 @@ class _EmailOtpVerificationScreenState
     final profileEmail = member['email']?.toString().trim() ?? '';
     if (profileEmail.isEmpty ||
         profileEmail.toLowerCase() != authEmail.toLowerCase()) {
-      if (mounted)
+      if (mounted) {
         setState(
           () => _emailError =
               'Your profile email does not match your login email. Contact the cooperative admin to correct it before verifying.',
         );
+      }
       return null;
     }
-    if (mounted)
+    if (mounted) {
       setState(() {
         _verifiedEmail = authEmail;
         _emailError = null;
       });
+    }
     return authEmail;
   }
 
@@ -230,12 +236,20 @@ class _EmailOtpVerificationScreenState
     final otp = _getOtpValue();
 
     try {
+      final consent = widget.consent;
+      if (consent == null) {
+        throw StateError(
+          'Return to Review and confirm your agreement and witness names.',
+        );
+      }
+      consent.validate();
       if (!_isEmailVerified) {
         final email = _verifiedEmail ?? await _loadVerifiedRegisteredEmail();
-        if (email == null)
+        if (email == null) {
           throw StateError(
             _emailError ?? 'The registered email could not be verified.',
           );
+        }
         await SupabaseService().verifyOtp(email: email, token: otp);
         _isEmailVerified = true;
       }
@@ -247,6 +261,7 @@ class _EmailOtpVerificationScreenState
         amount: widget.loanAmount,
         documents: widget.documents,
         tenureMonths: widget.tenure,
+        consent: consent,
         onProgress: (status) {
           if (mounted) setState(() => _submissionStatus = status);
         },

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'app_bottom_navigation_bar.dart';
+import 'loan_calculator_service.dart';
 import 'services/database_service.dart';
 import 'package:intl/intl.dart';
 
@@ -12,6 +13,8 @@ class Loan {
   final List<PaymentSchedule> amortizationSchedule;
   final String status;
   final double actualAmountPaid;
+  final double? recordedMonthlyPayment;
+  final double? interestPaid;
 
   Loan({
     required this.id,
@@ -21,25 +24,26 @@ class Loan {
     required this.amortizationSchedule,
     this.status = 'released',
     this.actualAmountPaid = 0,
+    this.recordedMonthlyPayment,
+    this.interestPaid,
   });
 
   double get principalAmount => _parseCurrency(principal);
 
-  String get monthlyPayment => amortizationSchedule.isEmpty
-      ? 'Not recorded'
-      : amortizationSchedule.first.amount;
+  String get monthlyPayment => recordedMonthlyPayment != null
+      ? _formatCurrency(recordedMonthlyPayment!)
+      : 'Not recorded';
 
   double get totalRepayable => _amountFor(amortizationSchedule);
 
   double get amountPaid => actualAmountPaid;
 
-  double get outstandingBalance =>
-      (totalRepayable - amountPaid).clamp(0.0, double.infinity);
+  double get outstandingBalance => status == 'completed'
+      ? 0
+      : (totalRepayable - amountPaid).clamp(0.0, double.infinity);
 
-  double get totalInterest => totalRepayable - principalAmount;
-
-  double get interestPaid =>
-      totalRepayable == 0 ? 0 : totalInterest * amountPaid / totalRepayable;
+  double get totalInterest =>
+      (totalRepayable - principalAmount).clamp(0.0, double.infinity);
 
   int get remainingMonths => amortizationSchedule
       .where((payment) => payment.status != PaymentStatus.completed)
@@ -47,56 +51,41 @@ class Loan {
 
   int get totalMonths => amortizationSchedule.length;
 
-  double get paymentProgress =>
-      totalRepayable == 0 ? 0 : (amountPaid / totalRepayable).clamp(0, 1);
+  double get paymentProgress => status == 'completed'
+      ? 1
+      : totalRepayable == 0
+      ? 0
+      : (amountPaid / totalRepayable).clamp(0, 1);
 
   factory Loan.fromDatabase(Map<String, dynamic> row) {
     final releasedDate = DateTime.tryParse('${row['date_released'] ?? ''}');
     final principal = double.tryParse('${row['amount'] ?? ''}') ?? 0;
     final monthly = double.tryParse('${row['monthly_payment'] ?? ''}');
     final tenure = int.tryParse('${row['tenure_months'] ?? ''}') ?? 0;
-    final rawPayments = row['loan_payments'];
-    final payments = rawPayments is List
-        ? rawPayments
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .toList()
-        : <Map<String, dynamic>>[];
-    final actualPaid = payments.fold<double>(
-      0,
-      (sum, payment) =>
-          sum + (double.tryParse('${payment['payment_amount'] ?? 0}') ?? 0),
-    );
+    var actualPaid = 0.0;
+    double? interestPaid = 0;
+    for (final payment in postedLoanPayments(row)) {
+      final principalPaid = double.tryParse('${payment['principal_amount']}');
+      final interest = double.tryParse('${payment['interest_amount']}');
+      if (principalPaid == null || interest == null) {
+        actualPaid += double.tryParse('${payment['payment_amount']}') ?? 0;
+        interestPaid = null;
+      } else {
+        actualPaid += principalPaid + interest;
+        if (interestPaid != null) interestPaid += interest;
+      }
+    }
     final schedule = <PaymentSchedule>[];
-    final status = '${row['status'] ?? 'approved'}';
+    final status = LoanEligibility.statusFor(row);
 
     // Only build an amortization schedule from terms saved with this loan.
     // Older loans without those fields remain visible, but are not fabricated.
     if (releasedDate != null && monthly != null && monthly > 0 && tenure > 0) {
-      final paymentsByDate =
-          payments
-              .map((payment) {
-                final date = DateTime.tryParse(
-                  '${payment['payment_date'] ?? ''}',
-                );
-                return (
-                  date: date,
-                  amount:
-                      double.tryParse('${payment['payment_amount'] ?? 0}') ??
-                      0.0,
-                );
-              })
-              .where((payment) => payment.date != null)
-              .toList()
-            ..sort((first, second) => first.date!.compareTo(second.date!));
       for (var index = 0; index < tenure; index++) {
         final dueDate = _addCalendarMonths(releasedDate, index + 1);
-        final paidByDueDate = paymentsByDate
-            .where((payment) => !payment.date!.isAfter(dueDate))
-            .fold<double>(0, (sum, payment) => sum + payment.amount);
         final isCompleted =
             status == 'completed' ||
-            paidByDueDate >= monthly * (index + 1) - 0.01;
+            (actualPaid * 100).round() >= (monthly * (index + 1) * 100).round();
         final hasNext = schedule.every(
           (payment) => payment.status == PaymentStatus.completed,
         );
@@ -126,6 +115,8 @@ class Loan {
       amortizationSchedule: schedule,
       status: status,
       actualAmountPaid: actualPaid,
+      recordedMonthlyPayment: monthly,
+      interestPaid: interestPaid,
     );
   }
 }
@@ -152,14 +143,16 @@ double _amountFor(Iterable<PaymentSchedule> payments) {
 }
 
 class LoanDetailsScreen extends StatefulWidget {
-  const LoanDetailsScreen({super.key});
+  const LoanDetailsScreen({super.key, this.applicationId});
+
+  final String? applicationId;
 
   @override
   State<LoanDetailsScreen> createState() => _LoanDetailsScreenState();
 }
 
 class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
-  final PageController _pageController = PageController();
+  final PageController _pageController = PageController(keepPage: false);
   int _currentPage = 0;
   final List<Loan> _loans = [];
   bool _loading = true;
@@ -177,7 +170,9 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
       _error = null;
     });
     try {
-      final rows = await DatabaseService().getMemberLoanDetails();
+      final rows = await DatabaseService().getMemberLoanDetails(
+        applicationId: widget.applicationId,
+      );
       final loans = rows.map(Loan.fromDatabase).toList();
       if (!mounted) return;
       setState(() {
@@ -224,7 +219,11 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                     ),
                   ],
                 )
-              : const Text('No approved or released loans were found.'),
+              : Text(
+                  widget.applicationId == null
+                      ? 'No approved or released loans were found.'
+                      : 'This loan application could not be found.',
+                ),
         ),
       );
     }
@@ -233,7 +232,7 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            const LoanDetailsAppBar(),
+            LoanDetailsAppBar(onRefresh: _loadLoanDetails),
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
@@ -325,7 +324,9 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
 }
 
 class LoanDetailsAppBar extends StatelessWidget {
-  const LoanDetailsAppBar({super.key});
+  const LoanDetailsAppBar({super.key, required this.onRefresh});
+
+  final VoidCallback onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -361,6 +362,11 @@ class LoanDetailsAppBar extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
+          ),
+          IconButton(
+            onPressed: onRefresh,
+            tooltip: 'Refresh loan details',
+            icon: const Icon(Icons.refresh),
           ),
         ],
       ),
@@ -635,7 +641,9 @@ class LoanProgressCard extends StatelessWidget {
             const SizedBox(height: AppTheme.spacingM),
             _buildProgressRow(
               'Interest',
-              '${_formatCurrency(loan.interestPaid)} paid / ${_formatCurrency(loan.totalInterest)} total',
+              loan.interestPaid == null
+                  ? 'Payment breakdown unavailable'
+                  : '${_formatCurrency(loan.interestPaid!)} paid / ${_formatCurrency(loan.totalInterest)} total',
             ),
             const SizedBox(height: AppTheme.spacingM),
             _buildProgressRow(

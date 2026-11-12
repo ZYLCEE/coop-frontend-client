@@ -1,6 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
 import 'app_bottom_navigation_bar.dart';
+import 'services/database_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -9,8 +14,136 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen> {
-  final List<NotificationItem> _notifications = [];
+class _NotificationsScreenState extends State<NotificationsScreen>
+    with WidgetsBindingObserver {
+  List<NotificationItem> _notifications = [];
+  bool _loading = true;
+  String? _error;
+  RealtimeChannel? _notificationChannel;
+  Timer? _refreshDebounce;
+  Timer? _refreshFallback;
+  int _loadGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadNotifications();
+    _listenForNotificationChanges();
+    _refreshFallback = Timer.periodic(const Duration(seconds: 30), (_) {
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      if (lifecycle == null || lifecycle == AppLifecycleState.resumed) {
+        _queueNotificationRefresh();
+      }
+    });
+  }
+
+  void _listenForNotificationChanges() {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (user == null) return;
+    final filter = PostgresChangeFilter(
+      type: PostgresChangeFilterType.eq,
+      column: 'user_id',
+      value: user.id,
+    );
+    _notificationChannel = client
+        .channel('member-notifications-${user.id}-${identityHashCode(this)}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'notifications',
+          filter: filter,
+          callback: (_) => _queueNotificationRefresh(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'notifications',
+          filter: filter,
+          callback: (_) => _queueNotificationRefresh(),
+        )
+        .subscribe();
+  }
+
+  void _queueNotificationRefresh() {
+    if (!mounted) return;
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (mounted) _loadNotifications(background: true);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _queueNotificationRefresh();
+  }
+
+  @override
+  void dispose() {
+    _loadGeneration++;
+    _refreshDebounce?.cancel();
+    _refreshFallback?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    final channel = _notificationChannel;
+    if (channel != null) {
+      unawaited(
+        Supabase.instance.client.removeChannel(channel).then<void>((_) {}),
+      );
+    }
+    super.dispose();
+  }
+
+  Future<void> _loadNotifications({bool background = false}) async {
+    if (!mounted) return;
+    final generation = ++_loadGeneration;
+    if (!background) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) throw StateError('Sign in to view your notifications.');
+      final rows = await DatabaseService().getNotifications(user.id);
+      if (!mounted || generation != _loadGeneration) return;
+      if (Supabase.instance.client.auth.currentUser?.id != user.id) {
+        setState(() => _notifications = []);
+        return;
+      }
+      setState(() {
+        _notifications = rows.map(NotificationItem.fromDatabase).toList();
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted || generation != _loadGeneration) return;
+      setState(
+        () => _error = error is StateError
+            ? error.message
+            : 'Unable to load your notifications. Try again.',
+      );
+    } finally {
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _markAsRead(NotificationItem item) async {
+    if (!item.isHighlighted) return;
+    try {
+      await DatabaseService().markNotificationAsRead(item.id);
+      if (mounted) setState(() => item.isHighlighted = false);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not mark this notification as read.'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,25 +154,43 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           children: [
             const NotificationAppBar(),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(AppTheme.spacingL),
-                child: Column(
-                  children: _notifications.isEmpty
-                      ? [const Text('No notification data loaded.')]
-                      : _notifications.map((notification) {
-                          return Padding(
-                            padding: const EdgeInsets.only(
-                              bottom: AppTheme.spacingM,
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : RefreshIndicator(
+                      onRefresh: _loadNotifications,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(AppTheme.spacingL),
+                        children: [
+                          if (_error != null) ...[
+                            Text(_error!, textAlign: TextAlign.center),
+                            TextButton(
+                              onPressed: _loadNotifications,
+                              child: const Text('Retry'),
                             ),
-                            child: notification.isHighlighted
-                                ? HighlightedNotificationCard(
-                                    notification: notification,
-                                  )
-                                : NotificationCard(notification: notification),
-                          );
-                        }).toList(),
-                ),
-              ),
+                          ] else if (_notifications.isEmpty)
+                            const Center(child: Text('No notifications yet.'))
+                          else
+                            ..._notifications.map((notification) {
+                              return Padding(
+                                padding: const EdgeInsets.only(
+                                  bottom: AppTheme.spacingM,
+                                ),
+                                child: notification.isHighlighted
+                                    ? GestureDetector(
+                                        onTap: () => _markAsRead(notification),
+                                        child: HighlightedNotificationCard(
+                                          notification: notification,
+                                        ),
+                                      )
+                                    : NotificationCard(
+                                        notification: notification,
+                                      ),
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
             ),
             AppBottomNavigationBar(currentIndex: 0, parentContext: context),
           ],
@@ -50,7 +201,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 }
 
 class NotificationItem {
-  final int id;
+  final String id;
   final String title;
   final String timestamp;
   final String description;
@@ -58,7 +209,7 @@ class NotificationItem {
   final IconData icon;
   final Color iconColor;
   final Color iconBgColor;
-  final bool isHighlighted;
+  bool isHighlighted;
 
   NotificationItem({
     required this.id,
@@ -71,6 +222,27 @@ class NotificationItem {
     required this.iconBgColor,
     required this.isHighlighted,
   });
+
+  factory NotificationItem.fromDatabase(Map<String, dynamic> row) {
+    final date = DateTime.tryParse('${row['created_at']}')?.toLocal();
+    final type = '${row['type']}'.toLowerCase();
+    final icon = switch (type) {
+      'warning' => Icons.warning_amber_outlined,
+      'success' => Icons.check_circle_outline,
+      'announcement' => Icons.campaign_outlined,
+      _ => Icons.notifications_none,
+    };
+    return NotificationItem(
+      id: row['id'] as String,
+      title: row['title'] as String,
+      description: row['message'] as String,
+      timestamp: date == null ? '' : DateFormat.yMMMd().add_jm().format(date),
+      icon: icon,
+      iconColor: AppTheme.primaryGreen,
+      iconBgColor: AppTheme.backButtonBg,
+      isHighlighted: row['read'] != true,
+    );
+  }
 }
 
 class NotificationAppBar extends StatelessWidget {

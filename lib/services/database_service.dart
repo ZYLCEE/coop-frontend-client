@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/loan_document.dart';
 import '../models/loan_policy.dart';
 import 'loan_document_upload_service.dart';
+import '../models/loan_consent_submission.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -9,15 +10,6 @@ class DatabaseService {
   DatabaseService._internal();
 
   final _supabase = Supabase.instance.client;
-
-  Future<LoanPolicySettings> getLoanPolicySettings() async {
-    final response = await _supabase
-        .from('loan_policy_settings')
-        .select()
-        .eq('singleton', true)
-        .single();
-    return LoanPolicySettings.fromMap(Map<String, dynamic>.from(response));
-  }
 
   // Members operations
   Future<Map<String, dynamic>> getMember(String userId) async {
@@ -34,8 +26,28 @@ class DatabaseService {
     return response;
   }
 
-  Future<void> updateMember(String memberId, Map<String, dynamic> data) async {
-    await _supabase.from('members').update(data).eq('member_id', memberId);
+  Future<Map<String, dynamic>> updateOwnMemberInfo({
+    required String userId,
+    String? firstName,
+    String? lastName,
+    String? phone,
+    String? address,
+  }) async {
+    if (_supabase.auth.currentUser?.id != userId) {
+      throw StateError('Sign in again to update your profile.');
+    }
+
+    return _supabase
+        .from('members')
+        .update({
+          'first_name': ?firstName,
+          'last_name': ?lastName,
+          'phone': ?phone,
+          'address': ?address,
+        })
+        .eq('user_id', userId)
+        .select()
+        .single();
   }
 
   // Loan applications operations
@@ -43,33 +55,51 @@ class DatabaseService {
     final member = await getMember(userId);
     final response = await _supabase
         .from('loan_applications')
-        .select(
-          '*, members(member_id, first_name, last_name, membership_type), loan_payments(payment_amount,payment_date)',
-        )
+        .select('*, loan_payments(*)')
         .eq('member_id', member['id'])
-        .order('date_submitted', ascending: false);
+        .order('date_submitted', ascending: false)
+        .order('created_at', ascending: false)
+        .order('id');
     return response;
   }
 
-  Future<List<Map<String, dynamic>>> getMemberLoanDetails() async {
+  Future<LoanPolicySettings> getLoanPolicySettings() async {
+    final response = await _supabase
+        .from('loan_policy_settings')
+        .select()
+        .eq('singleton', true)
+        .single();
+    return LoanPolicySettings.fromMap(response);
+  }
+
+  Future<List<Map<String, dynamic>>> getMemberLoanDetails({
+    String? applicationId,
+  }) async {
     final user = _supabase.auth.currentUser;
     if (user == null) throw StateError('Sign in to view your loan details.');
     final member = await getMember(user.id);
-    final rows = await _supabase
+    final query = _supabase
         .from('loan_applications')
-        .select(
-          '*, members(member_id,first_name,last_name), loan_payments(payment_amount,payment_date)',
-        )
-        .eq('member_id', member['id'])
-        .inFilter('status', ['approved', 'released', 'overdue', 'completed'])
-        .order('date_submitted', ascending: false);
-    return List<Map<String, dynamic>>.from(rows);
+        .select('*, loan_payments(*)')
+        .eq('member_id', member['id']);
+    final filtered = applicationId == null
+        ? query.inFilter('status', [
+            'approved',
+            'released',
+            'overdue',
+            'completed',
+          ])
+        : query.eq('application_id', applicationId);
+    return filtered
+        .order('date_submitted', ascending: false)
+        .order('created_at', ascending: false)
+        .order('id');
   }
 
   Future<Map<String, dynamic>> getLoanApplication(String applicationId) async {
     final response = await _supabase
         .from('loan_applications')
-        .select('*, members(member_id, first_name, last_name, membership_type)')
+        .select()
         .eq('application_id', applicationId)
         .single();
     return response;
@@ -85,6 +115,7 @@ class DatabaseService {
     required double amount,
     required List<SelectedLoanDocument> documents,
     required int tenureMonths,
+    LoanConsentSubmission? consent,
     void Function(String)? onProgress,
   }) async {
     await LoanDocumentUploadService(client: _supabase).submit(
@@ -93,6 +124,7 @@ class DatabaseService {
       amount: amount,
       documents: documents,
       tenureMonths: tenureMonths,
+      consent: consent,
       onProgress: onProgress,
     );
   }
@@ -128,7 +160,7 @@ class DatabaseService {
     final member = await getMember(userId);
     final response = await _supabase
         .from('savings_accounts')
-        .select('*, members(member_id, first_name, last_name, membership_type)')
+        .select()
         .eq('member_id', member['id']);
     return response;
   }
@@ -136,7 +168,7 @@ class DatabaseService {
   Future<Map<String, dynamic>> getSavingsAccount(String accountNumber) async {
     final response = await _supabase
         .from('savings_accounts')
-        .select('*, members(member_id, first_name, last_name, membership_type)')
+        .select()
         .eq('account_number', accountNumber)
         .single();
     return response;
@@ -153,10 +185,13 @@ class DatabaseService {
   }
 
   Future<void> markNotificationAsRead(String notificationId) async {
-    await _supabase
+    final updated = await _supabase
         .from('notifications')
         .update({'read': true})
-        .eq('id', notificationId);
+        .eq('id', notificationId)
+        .select('id')
+        .maybeSingle();
+    if (updated == null) throw StateError('Notification was not updated.');
   }
 
   Future<void> markAllNotificationsAsRead(String userId) async {

@@ -5,8 +5,10 @@ import 'bellicon.dart';
 import 'schedtracker.dart';
 import 'drawer_menu.dart';
 import 'app_bottom_navigation_bar.dart';
+import 'loan_calculator_service.dart';
 import 'loans_screen.dart';
 import 'services/database_service.dart';
+import 'services/member_activity_service.dart';
 
 class Dashboard extends StatefulWidget {
   const Dashboard({super.key});
@@ -17,7 +19,6 @@ class Dashboard extends StatefulWidget {
 
 class _DashboardState extends State<Dashboard> {
   final int _currentIndex = 0;
-  bool _hasPendingApplication = false;
   final PageController _advertisementController = PageController();
   Timer? _advertisementTimer;
   int _advertisementIndex = 0;
@@ -38,6 +39,7 @@ class _DashboardState extends State<Dashboard> {
   void initState() {
     super.initState();
     _loadData();
+    scheduleMicrotask(() { if (mounted) unawaited(MemberActivityService.instance.start().catchError((_) {})); });
     _advertisementTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!_advertisementController.hasClients) return;
       _advertisementController.animateToPage(
@@ -65,31 +67,29 @@ class _DashboardState extends State<Dashboard> {
 
       final activeLoan = loanApplications.isNotEmpty
           ? loanApplications.firstWhere(
-              (loan) =>
-                  loan['status'] == 'released' || loan['status'] == 'overdue',
+              (loan) => const {
+                'released',
+                'overdue',
+              }.contains(LoanEligibility.statusFor(loan)),
               orElse: () => loanApplications.first,
             )
           : null;
 
-      final payments = activeLoan != null
-          ? await _dbService.getLoanPayments(activeLoan['id'])
-          : [];
+      final activities = [
+        for (final loan in loanApplications)
+          for (final payment in postedLoanPayments(loan))
+            {
+              'title': 'Loan Payment · ${loan['application_id']}',
+              'date': '${payment['payment_date'] ?? ''}',
+              'amount': -(double.tryParse('${payment['payment_amount']}') ?? 0),
+            },
+      ]..sort((a, b) => '${b['date']}'.compareTo('${a['date']}'));
 
       if (mounted) {
         setState(() {
           _userData = memberData;
           _loanData = activeLoan;
-          _hasPendingApplication = loanApplications.any(
-            (loan) =>
-                loan['status'] == 'pending' || loan['status'] == 'under review',
-          );
-          _recentActivities = payments.map((payment) {
-            return {
-              'title': 'Loan Payment',
-              'date': payment['payment_date'],
-              'amount': -payment['payment_amount'],
-            };
-          }).toList();
+          _recentActivities = activities.take(5).toList();
           _isLoading = false;
         });
       }
@@ -137,27 +137,31 @@ class _DashboardState extends State<Dashboard> {
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Membership Badge
-                          _buildMembershipBadge(),
-                          const SizedBox(height: 16),
-                          // Advertisement carousel
-                          _buildAdvertisementCarousel(),
-                          const SizedBox(height: 16),
-                          // Active Loan Card
-                          if (_loanData != null) _buildActiveLoanCard(),
-                          if (_loanData != null) const SizedBox(height: 16),
-                          // Quick Actions Card
-                          _buildQuickActionsCard(),
-                          const SizedBox(height: 16),
-                          // Recent Activity Card
-                          _buildRecentActivityCard(),
-                          const SizedBox(height: 24),
-                        ],
+                  : RefreshIndicator(
+                      onRefresh: _loadData,
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Membership Badge
+                            _buildMembershipBadge(),
+                            const SizedBox(height: 16),
+                            // Advertisement carousel
+                            _buildAdvertisementCarousel(),
+                            const SizedBox(height: 16),
+                            // Active Loan Card
+                            if (_loanData != null) _buildActiveLoanCard(),
+                            if (_loanData != null) const SizedBox(height: 16),
+                            // Quick Actions Card
+                            _buildQuickActionsCard(),
+                            const SizedBox(height: 16),
+                            // Recent Activity Card
+                            _buildRecentActivityCard(),
+                            const SizedBox(height: 24),
+                          ],
+                        ),
                       ),
                     ),
             ),
@@ -352,9 +356,7 @@ class _DashboardState extends State<Dashboard> {
                       left: 18,
                       bottom: 18,
                       child: ElevatedButton.icon(
-                        onPressed: _hasPendingApplication
-                            ? null
-                            : _openAvailableLoans,
+                        onPressed: _openAvailableLoans,
                         icon: const Icon(Icons.arrow_forward, size: 15),
                         label: const Text('Apply Now'),
                         style: ElevatedButton.styleFrom(
@@ -414,13 +416,17 @@ class _DashboardState extends State<Dashboard> {
 
     final loanType = _loanData!['loan_type'] ?? 'Unknown';
     final amount = _loanData!['amount'] ?? 0.0;
-    final status = _loanData!['status'] ?? 'pending';
+    final status = LoanEligibility.statusFor(_loanData!);
 
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const LoanDetailsScreen()),
+          MaterialPageRoute(
+            builder: (_) => LoanDetailsScreen(
+              applicationId: _loanData!['application_id'] as String,
+            ),
+          ),
         );
       },
       child: Container(
@@ -589,35 +595,23 @@ class _DashboardState extends State<Dashboard> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _hasPendingApplication ? null : _openAvailableLoans,
+              onPressed: _openAvailableLoans,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _hasPendingApplication
-                    ? const Color(0xFFB8C4B8)
-                    : _primaryGreen,
+                backgroundColor: _primaryGreen,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(_buttonBorderRadius),
                 ),
               ),
-              child: Row(
+              child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    _hasPendingApplication
-                        ? Icons.hourglass_empty
-                        : Icons.account_balance_wallet,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
+                  Icon(Icons.account_balance_wallet, size: 20),
+                  SizedBox(width: 8),
                   Text(
-                    _hasPendingApplication
-                        ? 'Application Pending'
-                        : 'Apply for a Loan',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    'Apply for a Loan',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ],
               ),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'announcements_screen.dart';
+import 'documents_screen.dart';
+import 'active_logs_screen.dart';
 import 'faq_screen.dart';
 import 'contact_us_screen.dart';
 import 'about_cooperative_screen.dart';
@@ -30,6 +32,29 @@ class AppDrawer extends StatelessWidget {
                         builder: (_) => const AnnouncementsScreen(),
                       ),
                     );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.folder_outlined,
+                  title: 'Documents',
+                  subtitle: 'Your submissions and shared files',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const DocumentsScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.history_outlined,
+                  title: 'Active Logs',
+                  subtitle: 'Your successful sessions and activity',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const ActiveLogsScreen()));
                   },
                 ),
                 _buildDrawerItem(

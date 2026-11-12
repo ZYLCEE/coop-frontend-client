@@ -43,8 +43,6 @@ class DeviceSecurityService {
   }
 
   Future<DeviceSecurityStatus> check() async {
-    initialize();
-
     final platform = _platformName;
     if (platform == null) {
       return const DeviceSecurityStatus(
@@ -57,6 +55,7 @@ class DeviceSecurityService {
       );
     }
 
+    initialize();
     try {
       final isPhysicalDevice = await SafeDevice.isRealDevice;
       final isRootedOrJailbroken = await SafeDevice.isJailBroken;

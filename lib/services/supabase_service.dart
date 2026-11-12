@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import '../security/quick_access_controller.dart';
+import 'member_activity_service.dart';
 
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
@@ -61,6 +62,40 @@ class SupabaseService {
     return mustChangePassword;
   }
 
+  Future<bool> signInWithMemberEmail({
+    required String email,
+    required String password,
+  }) async {
+    final response = await client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+    try {
+      final user = response.user;
+      if (response.session == null ||
+          user == null ||
+          user.appMetadata['role'] != 'member') {
+        throw StateError('Sign in with an active member account.');
+      }
+      final member = await client
+          .from('members')
+          .select('status, must_change_password')
+          .eq('user_id', user.id)
+          .maybeSingle();
+      if (member?['status'] != 'active') {
+        throw StateError('Sign in with an active member account.');
+      }
+      final mustChangePassword = member?['must_change_password'] == true;
+      await QuickAccessController.instance.activateAfterPasswordLogin(
+        mustChangePassword: mustChangePassword,
+      );
+      return mustChangePassword;
+    } catch (_) {
+      await client.auth.signOut(scope: SignOutScope.local);
+      rethrow;
+    }
+  }
+
   Future<void> changeMemberPassword(String password) async {
     if (!isAuthenticated) {
       throw StateError('Please sign in before changing your password.');
@@ -110,6 +145,7 @@ class SupabaseService {
   }
 
   Future<void> signOut() async {
+    await MemberActivityService.instance.logout();
     await client.auth.signOut();
     await QuickAccessController.instance.clearAfterSignOut();
   }

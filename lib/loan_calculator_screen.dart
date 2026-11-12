@@ -25,11 +25,13 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
   LoanPolicySettings? _policy;
   bool _policyLoading = true;
   String? _policyError;
+  Set<LoanType> _blockedLoanTypes = const {};
 
   @override
   void initState() {
     super.initState();
-    _selectedLoanType = widget.initialLoanType ?? LoanEligibility.defaultType;
+    _selectedLoanType =
+        widget.initialLoanType ?? LoanTypeCatalog.available.first;
     _computation = _calculateWith(
       const LoanPolicySettings(
         baseInterestRatePercent: 1.5,
@@ -79,9 +81,23 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
           'Current loan policy requires at least ${policy.minMemberTenureMonths} months of membership. Your account does not meet this requirement yet.',
         );
       }
+      final loans = await DatabaseService().getLoanApplications(user.id);
+      final blockedTypes = LoanTypeCatalog.available
+          .where(
+            (type) => LoanEligibility.blockingApplication(type, loans) != null,
+          )
+          .toSet();
+      if (!mounted) return;
       ApplicationState.loanProcessingTime = policy.loanProcessingTime;
       setState(() {
         _policy = policy;
+        _blockedLoanTypes = blockedTypes;
+        if (widget.initialLoanType == null) {
+          _selectedLoanType = LoanTypeCatalog.available.firstWhere(
+            (type) => !blockedTypes.contains(type),
+            orElse: () => _selectedLoanType,
+          );
+        }
         _loanAmount = _loanAmount
             .clamp(policy.minLoanAmount, policy.maxLoanAmount)
             .toDouble();
@@ -172,6 +188,7 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
                 const SizedBox(height: AppTheme.spacingL),
                 LoanTypeDropdown(
                   selectedType: _selectedLoanType,
+                  blockedTypes: _blockedLoanTypes,
                   onChanged: (type) {
                     setState(() {
                       _selectedLoanType = type;
@@ -212,21 +229,23 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
                 ),
                 const SizedBox(height: AppTheme.spacingXL),
                 PrimaryButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => DocumentsDisbursementScreen(
-                          loanAmount: _loanAmount,
-                          loanType: _selectedLoanType,
-                          tenure: _selectedTenure,
-                          computation: _computation,
-                          collateralRequiredAbove:
-                              _policy!.collateralRequiredAbove,
-                        ),
-                      ),
-                    );
-                  },
+                  onPressed: _blockedLoanTypes.contains(_selectedLoanType)
+                      ? null
+                      : () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => DocumentsDisbursementScreen(
+                                loanAmount: _loanAmount,
+                                loanType: _selectedLoanType,
+                                tenure: _selectedTenure,
+                                computation: _computation,
+                                collateralRequiredAbove:
+                                    _policy!.collateralRequiredAbove,
+                              ),
+                            ),
+                          );
+                        },
                 ),
                 const SizedBox(height: AppTheme.spacingXL),
               ],
@@ -340,11 +359,13 @@ class LoanProgressIndicator extends StatelessWidget {
 
 class LoanTypeDropdown extends StatelessWidget {
   final LoanType selectedType;
+  final Set<LoanType> blockedTypes;
   final ValueChanged<LoanType> onChanged;
 
   const LoanTypeDropdown({
     super.key,
     required this.selectedType,
+    required this.blockedTypes,
     required this.onChanged,
   });
 
@@ -393,7 +414,7 @@ class LoanTypeDropdown extends StatelessWidget {
                       color: AppTheme.primaryGreen,
                     ),
                     items: LoanTypeCatalog.available.map((type) {
-                      final isOngoing = LoanEligibility.isOngoing(type);
+                      final isOngoing = blockedTypes.contains(type);
                       return DropdownMenuItem<LoanType>(
                         value: type,
                         enabled: !isOngoing,
@@ -923,7 +944,7 @@ class PaymentScheduleItem extends StatelessWidget {
 }
 
 class PrimaryButton extends StatelessWidget {
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   const PrimaryButton({super.key, required this.onPressed});
 

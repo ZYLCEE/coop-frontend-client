@@ -29,12 +29,20 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_isLoading || !_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
-      final authenticate =
-          widget.authenticate ?? SupabaseService().signInWithMemberId;
-      final mustChangePassword = await authenticate(
-        memberId: _memberIdController.text,
-        password: _passwordController.text,
-      );
+      final identifier = _memberIdController.text.trim();
+      final password = _passwordController.text;
+      final authenticate = widget.authenticate;
+      final mustChangePassword = authenticate != null
+          ? await authenticate(memberId: identifier, password: password)
+          : identifier.contains('@')
+          ? await SupabaseService().signInWithMemberEmail(
+              email: identifier,
+              password: password,
+            )
+          : await SupabaseService().signInWithMemberId(
+              memberId: identifier,
+              password: password,
+            );
       if (!mounted) return;
       _passwordController.clear();
       Navigator.pushReplacement(
@@ -115,7 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'MEMBER ID',
+                        'MEMBER ID OR EMAIL',
                         style: TextStyle(
                           color: Colors.black,
                           fontSize: 12,
@@ -134,6 +142,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           final id = (value ?? '').trim().toUpperCase();
                           if (id.isEmpty) {
                             return 'Please enter your Member ID.';
+                          }
+                          if (id.contains('@')) {
+                            return RegExp(
+                                  r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                                ).hasMatch(id)
+                                ? null
+                                : 'Please enter a valid email address.';
                           }
                           if (!RegExp(
                             r'^(?:CSUCC-)?\d{4}-\d{4,}$',

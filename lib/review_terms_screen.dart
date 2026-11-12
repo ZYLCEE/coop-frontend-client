@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'email_otp_verification_screen.dart';
 import 'models/loan_document.dart';
+import 'models/loan_consent_submission.dart';
 
 class ReviewTermsScreen extends StatefulWidget {
   final double loanAmount;
@@ -25,7 +26,33 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
   bool _acceptedTerms = false;
   bool _certifiedInformation = false;
 
-  bool get _isValidated => _acceptedTerms && _certifiedInformation;
+  final _witnessOne = TextEditingController();
+  final _witnessTwo = TextEditingController();
+
+  LoanConsentSubmission get _consent => LoanConsentSubmission(
+    termsAccepted: _acceptedTerms,
+    informationCertified: _certifiedInformation,
+    witnessNames: [_witnessOne.text, _witnessTwo.text],
+  );
+
+  bool get _isValidated {
+    if (_witnessOne.text.trim().isEmpty || _witnessTwo.text.trim().isEmpty) {
+      return false;
+    }
+    try {
+      _consent.validate();
+      return true;
+    } on StateError {
+      return false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _witnessOne.dispose();
+    _witnessTwo.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +100,50 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
                   });
                 },
               ),
+              const SizedBox(height: AppTheme.spacingL),
+              const Text(
+                'Witness names',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: AppTheme.spacingS),
+              const Text(
+                'Enter the full names of two different witnesses. These names will be saved with your agreement.',
+              ),
+              const SizedBox(height: AppTheme.spacingM),
+              TextField(
+                key: const Key('loan-witness-one'),
+                controller: _witnessOne,
+                textCapitalization: TextCapitalization.words,
+                maxLength: 160,
+                decoration: const InputDecoration(
+                  labelText: 'Witness 1 full name',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: AppTheme.spacingM),
+              TextField(
+                key: const Key('loan-witness-two'),
+                controller: _witnessTwo,
+                textCapitalization: TextCapitalization.words,
+                maxLength: 160,
+                decoration: const InputDecoration(
+                  labelText: 'Witness 2 full name',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              if (_witnessOne.text.trim().isNotEmpty &&
+                  _witnessTwo.text.trim().isNotEmpty &&
+                  _witnessOne.text.trim().toLowerCase() ==
+                      _witnessTwo.text.trim().toLowerCase())
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Enter two different witnesses.',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
               const SizedBox(height: AppTheme.spacingXL),
               PrimaryButton(
                 isEnabled: _isValidated,
@@ -86,6 +157,7 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
                               loanType: widget.loanType,
                               tenure: widget.tenure,
                               documents: widget.documents,
+                              consent: _consent,
                             ),
                           ),
                         );

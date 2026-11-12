@@ -101,3 +101,22 @@ CREATE TRIGGER update_savings_accounts_updated_at
   BEFORE UPDATE ON public.savings_accounts
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
+
+-- Insert sample data for testing
+INSERT INTO public.members (member_id, first_name, last_name, email, phone, address) VALUES
+('M-001', 'Juan', 'dela Cruz', 'juan@example.com', '09171234567', '123 Main St, Manila'),
+('M-002', 'Rosa', 'Mendoza', 'rosa@example.com', '09181234567', '456 Oak Ave, Quezon City'),
+('M-003', 'Carlo', 'Reyes', 'carlo@example.com', '09191234567', '789 Pine Rd, Makati'),
+('M-004', 'Ana', 'Torres', 'ana@example.com', '09201234567', '321 Elm St, Pasig'),
+('M-005', 'Pedro', 'Santos', 'pedro@example.com', '09211234567', '654 Maple Dr, Taguig'),
+('M-006', 'Luis', 'Garcia', 'luis@example.com', '09221234567', '987 Cedar Ln, Paranaque'),
+('M-007', 'Grace', 'Tan', 'grace@example.com', '09231234567', '159 Birch Blvd, Muntinlupa');
+
+INSERT INTO public.loan_applications (application_id, member_id, member_name, loan_type, amount, purpose, status, income, credit_score, date_submitted) VALUES
+('LA-2025-0089', (SELECT id FROM public.members WHERE member_id = 'M-001'), 'Juan dela Cruz', 'Regular', 75000.00, 'Business expansion', 'pending', 120000, 750, '2025-07-25'),
+('LA-2025-0088', (SELECT id FROM public.members WHERE member_id = 'M-002'), 'Rosa Mendoza', 'Medical', 30000.00, 'Medical emergency', 'under review', 95000, 720, '2025-07-24'),
+('LA-2025-0087', (SELECT id FROM public.members WHERE member_id = 'M-003'), 'Carlo Reyes', 'Educational', 50000.00, 'Tuition fee payment', 'approved', 150000, 780, '2025-07-23'),
+('LA-2025-0086', (SELECT id FROM public.members WHERE member_id = 'M-004'), 'Ana Torres', 'Emergency', 20000.00, 'Personal emergency', 'rejected', 60000, 650, '2025-07-22'),
+('LA-2025-0085', (SELECT id FROM public.members WHERE member_id = 'M-005'), 'Pedro Santos', 'Regular', 80000.00, 'Home renovation', 'released', 180000, 800, '2025-07-21'),
+('LA-2025-0084', (SELECT id FROM public.members WHERE member_id = 'M-006'), 'Luis Garcia', 'Medical', 25000.00, 'Medical expenses', 'completed', 85000, 710, '2025-07-20'),
+('LA-2025-0083', (SELECT id FROM public.members WHERE member_id = 'M-007'), 'Grace Tan', 'Regular', 60000.00, 'Small business', 'overdue', 110000, 690, '2025-07-19');

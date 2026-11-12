@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'quickaccesssetupscreen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
 import 'app_bottom_navigation_bar.dart';
@@ -45,6 +44,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _editPersonalInformation() async {
+    final member = _userData;
+    if (member == null) return;
+
+    final updated = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _EditPersonalInformationDialog(member: member),
+    );
+    if (!mounted || updated == null) return;
+
+    setState(() => _userData = updated);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Personal information updated.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -63,7 +79,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           ProfileHeaderCard(userData: _userData),
                           const SizedBox(height: AppTheme.spacingL),
-                          PersonalInformationCard(userData: _userData),
+                          PersonalInformationCard(
+                            userData: _userData,
+                            onEdit: _userData == null
+                                ? null
+                                : _editPersonalInformation,
+                          ),
                           const SizedBox(height: AppTheme.spacingL),
                           const SettingsMenuCard(),
                           const SizedBox(height: AppTheme.spacingL),
@@ -112,12 +133,12 @@ class ProfileHeaderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final firstName = userData?['first_name'] ?? 'Loading';
-    final lastName = userData?['last_name'] ?? '...';
+    final firstName = userData?['first_name']?.toString().trim() ?? 'Loading';
+    final lastName = userData?['last_name']?.toString().trim() ?? '...';
     final memberId = userData?['member_id'] ?? 'Loading';
     final initials = [firstName, lastName]
-        .where((name) => name is String && name.trim().isNotEmpty)
-        .map((name) => (name as String).trim()[0])
+        .where((name) => name.isNotEmpty)
+        .map((name) => name.characters.first)
         .join()
         .toUpperCase();
 
@@ -226,8 +247,9 @@ class MemberBadge extends StatelessWidget {
 
 class PersonalInformationCard extends StatelessWidget {
   final Map<String, dynamic>? userData;
+  final VoidCallback? onEdit;
 
-  const PersonalInformationCard({super.key, this.userData});
+  const PersonalInformationCard({super.key, this.userData, this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -246,14 +268,26 @@ class PersonalInformationCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'PERSONAL INFORMATION',
-            style: TextStyle(
-              color: AppTheme.primaryGreen,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.0,
-            ),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'PERSONAL INFORMATION',
+                  style: TextStyle(
+                    color: AppTheme.primaryGreen,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ),
+              if (onEdit != null)
+                TextButton.icon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('Edit Info'),
+                ),
+            ],
           ),
           const SizedBox(height: AppTheme.spacingL),
           Column(
@@ -267,6 +301,156 @@ class PersonalInformationCard extends StatelessWidget {
               const Divider(color: AppTheme.divider, height: 1),
               ProfileInfoRow(label: 'Address', value: address),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditPersonalInformationDialog extends StatefulWidget {
+  const _EditPersonalInformationDialog({required this.member});
+
+  final Map<String, dynamic> member;
+
+  @override
+  State<_EditPersonalInformationDialog> createState() =>
+      _EditPersonalInformationDialogState();
+}
+
+class _EditPersonalInformationDialogState
+    extends State<_EditPersonalInformationDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _changes = <String, String>{};
+  bool _saving = false;
+  String? _error;
+
+  Future<void> _save() async {
+    final form = _formKey.currentState!;
+    if (_saving || !form.validate()) return;
+    _changes.clear();
+    form.save();
+    if (_changes.isEmpty) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final updated = await DatabaseService().updateOwnMemberInfo(
+        userId: widget.member['user_id'] as String,
+        firstName: _changes['first_name'],
+        lastName: _changes['last_name'],
+        phone: _changes['phone'],
+        address: _changes['address'],
+      );
+      if (mounted) Navigator.of(context).pop(updated);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = 'Could not save your changes. Please try again.';
+      });
+    }
+  }
+
+  Widget _field(
+    String column,
+    String label, {
+    required int maxLength,
+    TextInputType? keyboardType,
+    int maxLines = 1,
+    String? Function(String)? validate,
+  }) {
+    final initial = widget.member[column]?.toString().trim() ?? '';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppTheme.spacingM),
+      child: TextFormField(
+        initialValue: initial,
+        enabled: !_saving,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
+        textInputAction: maxLines == 1 ? TextInputAction.next : null,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          errorMaxLines: 2,
+        ),
+        validator: (value) {
+          final text = value?.trim() ?? '';
+          if (text == initial) return null;
+          if (text.isEmpty) return '$label is required.';
+          if (text.runes.length > maxLength) {
+            return 'Use $maxLength characters or fewer.';
+          }
+          return validate?.call(text);
+        },
+        onSaved: (value) {
+          final text = value?.trim() ?? '';
+          if (text != initial) _changes[column] = text;
+        },
+      ),
+    );
+  }
+
+  String? _validatePhone(String phone) {
+    final digitCount = phone.replaceAll(RegExp(r'\D'), '').length;
+    if (!RegExp(r'^\+?[0-9() .-]+$').hasMatch(phone) ||
+        digitCount < 7 ||
+        digitCount > 15) {
+      return 'Enter a contact number with 7 to 15 digits.';
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_saving,
+      child: AlertDialog(
+        scrollable: true,
+        title: const Text('Edit Personal Information'),
+        content: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _field('first_name', 'First Name', maxLength: 100),
+              _field('last_name', 'Last Name', maxLength: 100),
+              _field(
+                'phone',
+                'Contact Number',
+                maxLength: 20,
+                keyboardType: TextInputType.phone,
+                validate: _validatePhone,
+              ),
+              _field(
+                'address',
+                'Address',
+                maxLength: 500,
+                keyboardType: TextInputType.multiline,
+                maxLines: 3,
+              ),
+              if (_error != null)
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: _saving ? null : _save,
+            child: Text(_saving ? 'Saving…' : 'Save Changes'),
           ),
         ],
       ),
@@ -332,10 +516,7 @@ class SettingsMenuCard extends StatelessWidget {
           SettingsMenuItem(
             icon: Icons.fingerprint,
             title: 'Change PIN / Biometric',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const QuickAccessSetupScreen()),
-            ),
+            onTap: () {},
           ),
           const Divider(color: AppTheme.divider, height: 1, indent: 56),
           SettingsMenuItem(

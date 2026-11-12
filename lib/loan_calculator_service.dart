@@ -81,17 +81,68 @@ class LoanTypeCatalog {
 }
 
 class LoanEligibility {
-  static const Set<LoanType> ongoingLoanTypes = {};
-
-  static bool isOngoing(LoanType loanType) {
-    return ongoingLoanTypes.contains(loanType);
+  static Map<String, dynamic>? blockingApplication(
+    LoanType type,
+    Iterable<Map<String, dynamic>> loans,
+  ) {
+    final key = _typeKey(type.label);
+    for (final loan in loans) {
+      if (_typeKey('${loan['loan_type']}') != key) continue;
+      switch (statusFor(loan)) {
+        case 'pending':
+        case 'under review':
+        case 'approved':
+        case 'released':
+        case 'overdue':
+          return loan;
+      }
+    }
+    return null;
   }
 
-  static LoanType get defaultType {
-    return LoanTypeCatalog.available.firstWhere(
-      (loanType) => !isOngoing(loanType),
-    );
+  static String statusFor(Map<String, dynamic> loan) {
+    final status = '${loan['status'] ?? 'unknown'}';
+    if ((status == 'released' || status == 'overdue') && _isPaidOff(loan)) {
+      return 'completed';
+    }
+    return status;
   }
+
+  static bool _isPaidOff(Map<String, dynamic> loan) {
+    final principal = double.tryParse('${loan['amount']}');
+    final monthly = double.tryParse('${loan['monthly_payment']}');
+    final months = int.tryParse('${loan['tenure_months']}');
+    if (principal == null ||
+        principal <= 0 ||
+        monthly == null ||
+        monthly <= 0 ||
+        months == null ||
+        months <= 0) {
+      return false;
+    }
+    var principalPaid = 0.0;
+    var interestPaid = 0.0;
+    for (final payment in postedLoanPayments(loan)) {
+      principalPaid += double.tryParse('${payment['principal_amount']}') ?? 0;
+      interestPaid += double.tryParse('${payment['interest_amount']}') ?? 0;
+    }
+    return (principalPaid * 100).round() >= (principal * 100).round() &&
+        (interestPaid * 100).round() >=
+            ((monthly * months - principal) * 100).round();
+  }
+
+  static String _typeKey(String value) =>
+      value.trim().toLowerCase().replaceFirst(RegExp(r'\s+loan$'), '');
+}
+
+Iterable<Map<String, dynamic>> postedLoanPayments(Map<String, dynamic> loan) {
+  final payments = loan['loan_payments'];
+  if (payments is! List) return const [];
+  return payments.whereType<Map<String, dynamic>>().where(
+    (payment) =>
+        payment['payment_status'] == null ||
+        payment['payment_status'] == 'posted',
+  );
 }
 
 class LoanComputation {
