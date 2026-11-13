@@ -11,16 +11,25 @@ import 'services/database_service.dart';
 
 class LoansScreen extends StatefulWidget {
   final bool hideTabs;
+  final bool startOnPendingApplications;
 
-  const LoansScreen({super.key, this.hideTabs = false});
+  const LoansScreen({
+    super.key,
+    this.hideTabs = false,
+    this.startOnPendingApplications = false,
+  }) : assert(!hideTabs || !startOnPendingApplications);
 
   @override
   State<LoansScreen> createState() => _LoansScreenState();
 }
 
 class _LoansScreenState extends State<LoansScreen> {
-  int _selectedTab = 0;
-  String _selectedFilter = 'All';
+  late int _selectedTab = widget.startOnPendingApplications ? 1 : 0;
+  int _categoryIndex = 0;
+  final _categoryController = PageController();
+  late String _selectedFilter = widget.startOnPendingApplications
+      ? 'Pending'
+      : 'All';
   final DatabaseService _dbService = DatabaseService();
   List<Map<String, dynamic>> _myLoans = [];
   bool _isLoading = true;
@@ -30,6 +39,21 @@ class _LoansScreenState extends State<LoansScreen> {
   void initState() {
     super.initState();
     _loadMyLoans();
+  }
+
+  @override
+  void dispose() {
+    _categoryController.dispose();
+    super.dispose();
+  }
+
+  void _goToCategory(int index) {
+    if (!_categoryController.hasClients) return;
+    _categoryController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
   }
 
   Future<void> _loadMyLoans() async {
@@ -61,8 +85,11 @@ class _LoansScreenState extends State<LoansScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _myLoansError =
-              'Unable to load your loan history. Check your connection and retry.';
+          _myLoansError = error is LoanHistoryLoadException
+              ? error.stage == 'member account link'
+                    ? 'Your login is not linked to a member record. Contact the cooperative admin to check your member account.'
+                    : 'Could not read loan records for your member account. Check the loan table access and retry.'
+              : 'Unable to load your loan history. Check your connection and retry.';
         });
       }
     }
@@ -71,7 +98,7 @@ class _LoansScreenState extends State<LoansScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F5F4),
+      backgroundColor: AppTheme.background,
       body: SafeArea(
         child: Column(
           children: [
@@ -201,166 +228,246 @@ class _LoansScreenState extends State<LoansScreen> {
   }
 
   Widget _buildAvailableLoans() {
-    return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(
-        horizontal: Responsive.horizontalPadding(context),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(height: Responsive.spacing(context, 16)),
-          if (_myLoansError != null)
-            Card(
-              color: const Color(0xFFFFF3E0),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Unable to verify existing applications. Apply is disabled until the loan history loads. $_myLoansError',
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: _loadMyLoans,
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          _buildLoanCategory(
-            'Personal Loans',
-            'Everyday financing needs',
+    final categories = [
+      (
+        title: 'Personal Loans',
+        subtitle: 'Everyday financing needs',
+        cards: [
+          _buildLoanCard(
+            LoanType.regular,
+            'Flexible financing for any purpose',
             const Color(0xFF206A3B),
-            [
-              _buildLoanCard(
-                LoanType.regular,
-                'Flexible financing for any purpose',
-                const Color(0xFF206A3B),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.emergency,
-                'Fast cash when you need it most',
-                const Color(0xFF206A3B),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.multiPurpose,
-                'One loan, many possibilities',
-                const Color(0xFF206A3B),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.quick,
-                'Minimal docs, same-day release',
-                const Color(0xFF206A3B),
-                false,
-              ),
-            ],
+            false,
           ),
-          SizedBox(height: Responsive.spacing(context, 24)),
-          _buildLoanCategory(
-            'Special Purpose Loans',
-            'Tailored for specific needs',
-            const Color(0xFF1E88E5),
-            [
-              _buildLoanCard(
-                LoanType.educational,
-                'Invest in your future',
-                const Color(0xFF1E88E5),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.medical,
-                'Prioritize your health',
-                const Color(0xFF1E88E5),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.livelihood,
-                'Grow your business',
-                const Color(0xFF1E88E5),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.appliance,
-                'Upgrade your home',
-                const Color(0xFF1E88E5),
-                false,
-              ),
-            ],
+          _buildLoanCard(
+            LoanType.emergency,
+            'Fast cash when you need it most',
+            const Color(0xFF206A3B),
+            false,
           ),
-          SizedBox(height: Responsive.spacing(context, 24)),
-          _buildLoanCategory(
-            'Occasion Loans',
-            'Celebrate life\'s milestones',
-            const Color(0xFFC8A64A),
-            [
-              _buildLoanCard(
-                LoanType.birthday,
-                'Make your birthday unforgettable',
-                const Color(0xFFC8A64A),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.anniversary,
-                'Celebrate your union in style',
-                const Color(0xFFC8A64A),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.fiesta,
-                'Community festival financing',
-                const Color(0xFFC8A64A),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.bonus,
-                'Bridge the gap before bonus',
-                const Color(0xFFC8A64A),
-                false,
-              ),
-            ],
+          _buildLoanCard(
+            LoanType.multiPurpose,
+            'One loan, many possibilities',
+            const Color(0xFF206A3B),
+            false,
           ),
-          SizedBox(height: Responsive.spacing(context, 24)),
-          _buildLoanCategory(
-            'Secured & Other Loans',
-            'Collateral-backed programs',
-            const Color(0xFF546E7A),
-            [
-              _buildLoanCard(
-                LoanType.collateral,
-                'Higher limits, asset-secured',
-                const Color(0xFF546E7A),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.mortuary,
-                'Support during times of loss',
-                const Color(0xFF546E7A),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.subsistence,
-                'Day-to-day subsistence aid',
-                const Color(0xFF546E7A),
-                false,
-              ),
-              _buildLoanCard(
-                LoanType.assme,
-                'ASSME-backed program',
-                const Color(0xFF546E7A),
-                false,
-              ),
-            ],
+          _buildLoanCard(
+            LoanType.quick,
+            'Minimal docs, same-day release',
+            const Color(0xFF206A3B),
+            false,
           ),
-          SizedBox(height: Responsive.spacing(context, 24)),
         ],
       ),
+      (
+        title: 'Special Purpose Loans',
+        subtitle: 'Tailored for specific needs',
+        cards: [
+          _buildLoanCard(
+            LoanType.educational,
+            'Invest in your future',
+            const Color(0xFF1E88E5),
+            false,
+          ),
+          _buildLoanCard(
+            LoanType.medical,
+            'Prioritize your health',
+            const Color(0xFF1E88E5),
+            false,
+          ),
+          _buildLoanCard(
+            LoanType.livelihood,
+            'Grow your business',
+            const Color(0xFF1E88E5),
+            false,
+          ),
+          _buildLoanCard(
+            LoanType.appliance,
+            'Upgrade your home',
+            const Color(0xFF1E88E5),
+            false,
+          ),
+        ],
+      ),
+      (
+        title: 'Occasion Loans',
+        subtitle: 'Celebrate life\'s milestones',
+        cards: [
+          _buildLoanCard(
+            LoanType.birthday,
+            'Make your birthday unforgettable',
+            const Color(0xFFC8A64A),
+            false,
+          ),
+          _buildLoanCard(
+            LoanType.anniversary,
+            'Celebrate your union in style',
+            const Color(0xFFC8A64A),
+            false,
+          ),
+          _buildLoanCard(
+            LoanType.fiesta,
+            'Community festival financing',
+            const Color(0xFFC8A64A),
+            false,
+          ),
+          _buildLoanCard(
+            LoanType.bonus,
+            'Bridge the gap before bonus',
+            const Color(0xFFC8A64A),
+            false,
+          ),
+        ],
+      ),
+      (
+        title: 'Secured & Other Loans',
+        subtitle: 'Collateral-backed programs',
+        cards: [
+          _buildLoanCard(
+            LoanType.collateral,
+            'Higher limits, asset-secured',
+            const Color(0xFF546E7A),
+            false,
+          ),
+          _buildLoanCard(
+            LoanType.mortuary,
+            'Support during times of loss',
+            const Color(0xFF546E7A),
+            false,
+          ),
+          _buildLoanCard(
+            LoanType.subsistence,
+            'Day-to-day subsistence aid',
+            const Color(0xFF546E7A),
+            false,
+          ),
+          _buildLoanCard(
+            LoanType.assme,
+            'ASSME-backed program',
+            const Color(0xFF546E7A),
+            false,
+          ),
+        ],
+      ),
+    ];
+    final padding = Responsive.horizontalPadding(context);
+    final category = categories[_categoryIndex];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(padding, AppTheme.spacingS, padding, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                category.title,
+                style: TextStyle(
+                  color: AppTheme.primaryText,
+                  fontSize: Responsive.titleSize(context),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _categoryButton(
+                      'Previous',
+                      _categoryIndex > 0
+                          ? () => _goToCategory(_categoryIndex - 1)
+                          : null,
+                    ),
+                  ),
+                  Expanded(
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        'Category ${_categoryIndex + 1} of ${categories.length}',
+                        textAlign: TextAlign.center,
+                        style: AppTheme.captionBold,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: _categoryButton(
+                      'Next',
+                      _categoryIndex < categories.length - 1
+                          ? () => _goToCategory(_categoryIndex + 1)
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: PageView.builder(
+            key: const PageStorageKey('available-loan-categories'),
+            controller: _categoryController,
+            itemCount: categories.length,
+            onPageChanged: (index) => setState(() => _categoryIndex = index),
+            itemBuilder: (context, index) {
+              final page = categories[index];
+              return SingleChildScrollView(
+                key: PageStorageKey('available-loans-$index'),
+                primary: false,
+                padding: EdgeInsets.fromLTRB(
+                  padding,
+                  AppTheme.spacingS,
+                  padding,
+                  AppTheme.spacingXXL,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_myLoansError != null)
+                      Card(
+                        color: const Color(0xFFFFF3E0),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Unable to verify existing applications. Apply is disabled until the loan history loads. $_myLoansError',
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _loadMyLoans,
+                                child: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    Text(
+                      page.subtitle,
+                      style: TextStyle(
+                        color: AppTheme.mutedGray,
+                        fontSize: Responsive.bodySize(context),
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.spacingL),
+                    ...page.cards,
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
+
+  Widget _categoryButton(String label, VoidCallback? onPressed) => TextButton(
+    onPressed: onPressed,
+    style: TextButton.styleFrom(
+      foregroundColor: AppTheme.primaryGreen,
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingXS),
+    ),
+    child: Text(label, textAlign: TextAlign.center),
+  );
 
   Widget _buildMyLoans() {
     if (_isLoading) {
@@ -448,7 +555,9 @@ class _LoansScreenState extends State<LoansScreen> {
                         : const Color(0xFFE0E0E0),
                     width: 1,
                   ),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(
+                    AppTheme.cardBorderRadius,
+                  ),
                 ),
                 child: Text(
                   filter,
@@ -637,7 +746,8 @@ class _LoansScreenState extends State<LoansScreen> {
       value is num ? value.toInt() : int.tryParse('$value');
 
   String _loanStatusLabel(String status) => switch (status.toLowerCase()) {
-    'under review' => 'Returned',
+    'under review' => 'Under Review',
+    'returned' => 'Returned',
     'released' => 'Active',
     'completed' => 'Fully Paid',
     'pending' => 'Pending',
@@ -666,6 +776,38 @@ class _LoansScreenState extends State<LoansScreen> {
     }
   }
 
+  void _showApplicationStatus({
+    required String loanName,
+    required String loanId,
+    required String appliedDate,
+    required String status,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        scrollable: true,
+        title: const Text('Application Status'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(loanName, style: AppTheme.bodyBold),
+            const SizedBox(height: AppTheme.spacingS),
+            Text('Application ID: $loanId'),
+            Text('Date submitted: $appliedDate'),
+            Text('Status: $status'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLoanHistoryCard(
     String loanName,
     String loanId,
@@ -679,8 +821,18 @@ class _LoansScreenState extends State<LoansScreen> {
     int? progress,
     int? totalMonths,
   ) {
+    final awaitingDecision = status == 'Pending' || status == 'Under Review';
     return GestureDetector(
       onTap: () {
+        if (awaitingDecision) {
+          _showApplicationStatus(
+            loanName: loanName,
+            loanId: loanId,
+            appliedDate: appliedDate,
+            status: status,
+          );
+          return;
+        }
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -794,10 +946,10 @@ class _LoansScreenState extends State<LoansScreen> {
                         totalMonths,
                       )
                     : const Text('Repayment details are not available yet.')
-              else if (status == 'Pending' || status == 'Under Review')
+              else if (awaitingDecision)
                 principal == null
                     ? const SizedBox.shrink()
-                    : _buildPendingCardContent(principal)
+                    : _buildPendingCardContent(principal, status)
               else if (status == 'Returned')
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -955,7 +1107,7 @@ class _LoansScreenState extends State<LoansScreen> {
     );
   }
 
-  Widget _buildPendingCardContent(double principal) {
+  Widget _buildPendingCardContent(double principal, String status) {
     return Column(
       children: [
         Container(
@@ -974,7 +1126,9 @@ class _LoansScreenState extends State<LoansScreen> {
               SizedBox(width: Responsive.spacing(context, 12)),
               Expanded(
                 child: Text(
-                  'Under review by Credit Committee',
+                  status == 'Under Review'
+                      ? 'Application is under review'
+                      : 'Awaiting a status update',
                   style: TextStyle(
                     color: const Color(0xFF7D8A82),
                     fontSize: Responsive.bodySize(context),
@@ -1051,7 +1205,7 @@ class _LoansScreenState extends State<LoansScreen> {
             children: [
               Icon(
                 Icons.cancel,
-                color: const Color(0xFFD9534F),
+                color: AppTheme.danger,
                 size: Responsive.iconSize(context, 20),
               ),
               SizedBox(width: Responsive.spacing(context, 12)),
@@ -1059,7 +1213,7 @@ class _LoansScreenState extends State<LoansScreen> {
                 child: Text(
                   'Application not approved',
                   style: TextStyle(
-                    color: const Color(0xFFD9534F),
+                    color: AppTheme.danger,
                     fontSize: Responsive.bodySize(context),
                     fontWeight: FontWeight.w500,
                   ),
@@ -1110,38 +1264,6 @@ class _LoansScreenState extends State<LoansScreen> {
     );
   }
 
-  Widget _buildLoanCategory(
-    String title,
-    String subtitle,
-    Color color,
-    List<Widget> cards,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            color: const Color(0xFF183A24),
-            fontSize: Responsive.titleSize(context),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        SizedBox(height: Responsive.spacing(context, 4)),
-        Text(
-          subtitle,
-          style: TextStyle(
-            color: const Color(0xFF7D8A82),
-            fontSize: Responsive.bodySize(context),
-            fontWeight: FontWeight.w400,
-          ),
-        ),
-        SizedBox(height: Responsive.spacing(context, 16)),
-        ...cards,
-      ],
-    );
-  }
-
   Widget _buildLoanCard(
     LoanType loanType,
     String description,
@@ -1173,7 +1295,7 @@ class _LoansScreenState extends State<LoansScreen> {
       padding: EdgeInsets.only(bottom: Responsive.spacing(context, 16)),
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.08),
@@ -1184,14 +1306,16 @@ class _LoansScreenState extends State<LoansScreen> {
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Top colored section
             Container(
-              height: 110,
+              constraints: const BoxConstraints(minHeight: 110),
               decoration: BoxDecoration(
                 color: isOngoing ? AppTheme.mutedGray : color,
               ),
               child: Stack(
+                alignment: Alignment.bottomLeft,
                 children: [
                   // Decorative circles
                   Positioned(
@@ -1219,10 +1343,10 @@ class _LoansScreenState extends State<LoansScreen> {
                     ),
                   ),
                   // Content positioned at bottom left
-                  Positioned(
-                    left: 20,
-                    bottom: 20,
+                  Padding(
+                    padding: const EdgeInsets.all(20),
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text.rich(
@@ -1289,54 +1413,68 @@ class _LoansScreenState extends State<LoansScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(width: AppTheme.spacingS),
                   if (isOngoing)
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: Responsive.spacing(context, 20),
-                        vertical: Responsive.spacing(context, 12),
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.mutedGray,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        blockedLabel,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    )
-                  else if (!isActive)
-                    ElevatedButton(
-                      onPressed: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                ProfileConfirmationScreen(loanType: loanType),
-                          ),
-                        );
-                        if (mounted) await _loadMyLoans();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryGreen,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
+                    Flexible(
+                      child: Container(
                         padding: EdgeInsets.symmetric(
                           horizontal: Responsive.spacing(context, 20),
                           vertical: Responsive.spacing(context, 12),
                         ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
+                        decoration: BoxDecoration(
+                          color: AppTheme.mutedGray,
+                          borderRadius: BorderRadius.circular(
+                            AppTheme.cardBorderRadius,
+                          ),
+                        ),
+                        child: Text(
+                          blockedLabel,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                      child: const Text(
-                        'Apply Now',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                    )
+                  else if (!isActive)
+                    Flexible(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ProfileConfirmationScreen(
+                                  loanType: loanType,
+                                ),
+                              ),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryGreen,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: Responsive.spacing(context, 20),
+                              vertical: Responsive.spacing(context, 12),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                AppTheme.cardBorderRadius,
+                              ),
+                            ),
+                          ),
+                          child: const Text(
+                            'Apply Now',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                       ),
                     ),

@@ -232,11 +232,15 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                 color: AppTheme.cardWhite,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(
+                    AppTheme.cardBorderRadius,
+                  ),
                   side: const BorderSide(color: AppTheme.divider),
                 ),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(
+                    AppTheme.cardBorderRadius,
+                  ),
                   onTap: () => _open(row),
                   child: Padding(
                     padding: const EdgeInsets.all(16),

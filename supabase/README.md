@@ -113,6 +113,13 @@ The Flutter app has been configured with:
 - Supabase initialization in `main.dart`
 - SupabaseService class for common operations
 
+Set `SUPABASE_URL` and the project's current anon/publishable key in the
+Flutter app's local `.env` file. Do not put a service-role key in the app.
+Members sign in with their Member ID; cooperative administrators use the
+superadmin email sign-in option and must have
+`app_metadata.role = 'coop_admin'`, as checked by `is_coop_admin()`. Set that
+role only through a trusted server-side admin process, never from the client.
+
 ### Usage in Flutter
 
 ```dart
@@ -149,3 +156,30 @@ final response = await supabase.functions.invoke('loan-approval', body: {
 - The anon key is safe for client-side use due to RLS policies
 - RLS policies ensure users can only access their own data
 - Edge Functions use service role key for elevated privileges
+
+## Co-Maker Notification Email
+
+The co-maker invitation Edge Function creates one detailed in-app notification
+and sends an email copy for invitation, acceptance, and decline events. Email
+delivery uses the Resend API from the Edge Function; the Resend key must never
+be added to Flutter or committed to this repository. The recipient must have a
+registered email on their Supabase Auth account. Email is informational: the
+co-maker must sign in to CSUCC ERMPC and accept or decline in the app, where
+acceptance still requires email OTP verification.
+
+Before deploying to a staging project, verify a sending domain with Resend and
+set these Edge Function secrets on that project:
+
+```sh
+supabase secrets set RESEND_API_KEY=re_your_key COOP_EMAIL_FROM="CSUCC ERMPC <no-reply@your-verified-domain>" --project-ref YOUR_STAGING_PROJECT_REF
+```
+
+Then deploy the function to staging and test with two staging member accounts:
+
+```sh
+supabase functions deploy co-maker-invitation --project-ref YOUR_STAGING_PROJECT_REF
+```
+
+The function reports `email_sent` in its response. The app keeps the in-app
+notification available if the email provider is not configured or delivery
+fails, and displays that state to the borrower.

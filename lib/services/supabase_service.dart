@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import '../loan_application_mode.dart';
 import '../security/quick_access_controller.dart';
 import 'member_activity_service.dart';
 
@@ -27,6 +28,17 @@ class SupabaseService {
       final details = error.details;
       if (details is Map && details['error'] is String) {
         throw StateError(details['error'] as String);
+      }
+      if (error.status == 401) {
+        throw StateError(
+          'Supabase rejected the login request. Check the project API key '
+          'and the member-auth function authorization settings.',
+        );
+      }
+      if (error.status == 404) {
+        throw StateError(
+          'The member-auth function is not deployed to this Supabase project.',
+        );
       }
       throw StateError(
         'Cannot connect to the member login server. Please try again.',
@@ -124,9 +136,19 @@ class SupabaseService {
       email: email,
       password: password,
     );
-    if (response.user == null) {
+    final user = response.user;
+    if (user == null || response.session == null) {
       throw Exception('Sign in failed');
     }
+    if (user.appMetadata['role'] != 'coop_admin') {
+      await client.auth.signOut(scope: SignOutScope.local);
+      throw StateError(
+        'This account is not configured for cooperative administrator access.',
+      );
+    }
+    await QuickAccessController.instance.activateAfterPasswordLogin(
+      mustChangePassword: false,
+    );
   }
 
   Future<void> signUp({
@@ -150,7 +172,11 @@ class SupabaseService {
     await QuickAccessController.instance.clearAfterSignOut();
   }
 
-  Future<void> sendOtp({required String email}) async {
+  Future<void> sendOtp({
+    required String email,
+    bool participantsDemo = false,
+  }) async {
+    requireLiveLoanOperations(participantsDemo: participantsDemo);
     final normalizedEmail = email.trim();
     if (normalizedEmail.isEmpty) {
       throw StateError(
@@ -196,7 +222,12 @@ class SupabaseService {
     }
   }
 
-  Future<void> verifyOtp({required String email, required String token}) async {
+  Future<void> verifyOtp({
+    required String email,
+    required String token,
+    bool participantsDemo = false,
+  }) async {
+    requireLiveLoanOperations(participantsDemo: participantsDemo);
     await client.auth.verifyOTP(
       email: email,
       token: token,

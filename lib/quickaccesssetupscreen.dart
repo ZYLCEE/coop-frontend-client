@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_theme.dart';
 import 'dashboard.dart';
 import 'security/quick_access_controller.dart';
 import 'security/quick_access_service.dart';
@@ -283,7 +284,7 @@ class _QuickAccessSetupScreenState extends State<QuickAccessSetupScreen> {
                         padding: const EdgeInsets.only(top: 16),
                         child: Text(
                           _error!,
-                          style: const TextStyle(color: Colors.red),
+                          style: const TextStyle(color: AppTheme.danger),
                         ),
                       ),
                     if (_busy)

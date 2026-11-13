@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_theme.dart';
 import 'security/quick_access_controller.dart';
 import 'security/quick_access_service.dart';
 
@@ -142,7 +143,7 @@ class _QuickUnlockScreenState extends State<QuickUnlockScreen> {
                             padding: const EdgeInsets.only(top: 16),
                             child: Text(
                               controller.error!,
-                              style: const TextStyle(color: Colors.red),
+                              style: const TextStyle(color: AppTheme.danger),
                               textAlign: TextAlign.center,
                             ),
                           ),

@@ -15,6 +15,7 @@ class DocumentPickerService {
     Future<XFile?> Function(DocumentSource source)? pickImage,
     SecureStorageService? storage,
     String? Function()? currentUserId,
+    this.recoverInterruptedImages = true,
   }) : _images = images ?? ImagePicker(),
        _pickFiles = pickFiles,
        _pickImage = pickImage,
@@ -23,6 +24,7 @@ class DocumentPickerService {
            currentUserId ??
            (() => Supabase.instance.client.auth.currentUser?.id);
 
+  final bool recoverInterruptedImages;
   final ImagePicker _images;
   final Future<FilePickerResult?> Function()? _pickFiles;
   final Future<XFile?> Function(DocumentSource source)? _pickImage;
@@ -77,10 +79,11 @@ class DocumentPickerService {
           bytes: data,
         );
       } else {
-        if (!await _storage.write(
-          _pendingKey,
-          jsonEncode({'userId': owner, 'kind': kind.name}),
-        )) {
+        if (recoverInterruptedImages &&
+            !await _storage.write(
+              _pendingKey,
+              jsonEncode({'userId': owner, 'kind': kind.name}),
+            )) {
           throw StateError(
             'Unable to prepare document selection. Please try again.',
           );
@@ -96,7 +99,7 @@ class DocumentPickerService {
           if (image == null) return null;
           selected = await _fromImage(kind, image);
         } finally {
-          await _storage.delete(_pendingKey);
+          if (recoverInterruptedImages) await _storage.delete(_pendingKey);
         }
       }
       if (_currentUserId() != owner)
@@ -165,7 +168,10 @@ class DocumentPickerService {
   }
 
   Future<SelectedLoanDocument?> recoverLostSelection() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return null;
+    if (!recoverInterruptedImages ||
+        kIsWeb ||
+        defaultTargetPlatform != TargetPlatform.android)
+      return null;
     final pending = await _storage.read(_pendingKey);
     if (pending == null) return null;
     final recovered = await _images.retrieveLostData();

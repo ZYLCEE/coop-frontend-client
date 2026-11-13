@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../loan_application_mode.dart';
 import '../models/loan_document.dart';
 import '../models/loan_policy.dart';
 import 'loan_document_upload_service.dart';
@@ -40,10 +41,10 @@ class DatabaseService {
     return _supabase
         .from('members')
         .update({
-          'first_name': ?firstName,
-          'last_name': ?lastName,
-          'phone': ?phone,
-          'address': ?address,
+          if (firstName != null) 'first_name': firstName,
+          if (lastName != null) 'last_name': lastName,
+          if (phone != null) 'phone': phone,
+          if (address != null) 'address': address,
         })
         .eq('user_id', userId)
         .select()
@@ -52,15 +53,58 @@ class DatabaseService {
 
   // Loan applications operations
   Future<List<Map<String, dynamic>>> getLoanApplications(String userId) async {
-    final member = await getMember(userId);
-    final response = await _supabase
-        .from('loan_applications')
-        .select('*, loan_payments(*)')
-        .eq('member_id', member['id'])
-        .order('date_submitted', ascending: false)
-        .order('created_at', ascending: false)
-        .order('id');
-    return response;
+    late final Map<String, dynamic> member;
+    try {
+      member = await getMember(userId);
+    } catch (_) {
+      throw const LoanHistoryLoadException('member account link');
+    }
+
+    try {
+      final response = await _supabase
+          .from('loan_applications')
+          .select()
+          .eq('member_id', member['id'])
+          .order('date_submitted', ascending: false);
+      final applications = List<Map<String, dynamic>>.from(response);
+      if (applications.isEmpty) return applications;
+
+      final applicationIds = applications
+          .map((application) => application['id'])
+          .whereType<String>()
+          .toList();
+      try {
+        final paymentRows = await _supabase
+            .from('loan_payments')
+            .select('loan_application_id, payment_amount, payment_date')
+            .inFilter('loan_application_id', applicationIds);
+        final paymentsByApplication = <String, List<Map<String, dynamic>>>{};
+        for (final row in List<Map<String, dynamic>>.from(paymentRows)) {
+          final applicationId = row['loan_application_id'] as String?;
+          if (applicationId == null) continue;
+          paymentsByApplication
+              .putIfAbsent(applicationId, () => <Map<String, dynamic>>[])
+              .add(row);
+        }
+        return applications
+            .map(
+              (application) => {
+                ...application,
+                'loan_payments':
+                    paymentsByApplication[application['id']] ??
+                    <Map<String, dynamic>>[],
+              },
+            )
+            .toList();
+      } catch (_) {
+        // Payment summaries are optional; keep loan selection/history available.
+        return applications
+            .map((application) => {...application, 'loan_payments': null})
+            .toList();
+      }
+    } catch (_) {
+      throw const LoanHistoryLoadException('loan records');
+    }
   }
 
   Future<LoanPolicySettings> getLoanPolicySettings() async {
@@ -99,13 +143,14 @@ class DatabaseService {
   Future<Map<String, dynamic>> getLoanApplication(String applicationId) async {
     final response = await _supabase
         .from('loan_applications')
-        .select()
+        .select('*, members(member_id, first_name, last_name)')
         .eq('application_id', applicationId)
         .single();
     return response;
   }
 
   Future<void> createLoanApplication(Map<String, dynamic> data) async {
+    requireLiveLoanOperations();
     await _supabase.from('loan_applications').insert(data);
   }
 
@@ -115,9 +160,11 @@ class DatabaseService {
     required double amount,
     required List<SelectedLoanDocument> documents,
     required int tenureMonths,
-    LoanConsentSubmission? consent,
+    required LoanConsentSubmission consent,
     void Function(String)? onProgress,
+    bool participantsDemo = false,
   }) async {
+    requireLiveLoanOperations(participantsDemo: participantsDemo);
     await LoanDocumentUploadService(client: _supabase).submit(
       applicationId: applicationId,
       loanType: loanType,
@@ -126,6 +173,7 @@ class DatabaseService {
       tenureMonths: tenureMonths,
       consent: consent,
       onProgress: onProgress,
+      participantsDemo: participantsDemo,
     );
   }
 
@@ -160,7 +208,7 @@ class DatabaseService {
     final member = await getMember(userId);
     final response = await _supabase
         .from('savings_accounts')
-        .select()
+        .select('*, members(member_id, first_name, last_name)')
         .eq('member_id', member['id']);
     return response;
   }
@@ -168,7 +216,7 @@ class DatabaseService {
   Future<Map<String, dynamic>> getSavingsAccount(String accountNumber) async {
     final response = await _supabase
         .from('savings_accounts')
-        .select()
+        .select('*, members(member_id, first_name, last_name)')
         .eq('account_number', accountNumber)
         .single();
     return response;
@@ -276,4 +324,10 @@ class DatabaseService {
       },
     );
   }
+}
+
+class LoanHistoryLoadException implements Exception {
+  const LoanHistoryLoadException(this.stage);
+
+  final String stage;
 }

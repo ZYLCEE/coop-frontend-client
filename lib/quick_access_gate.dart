@@ -88,7 +88,7 @@ class _QuickAccessGateState extends State<QuickAccessGate>
       if (!mounted || !_controller.redirectToStart) return;
       final navigator = widget.navigatorKey.currentState;
       if (navigator == null) {
-        _handleChange();
+        _controller.acknowledgeRedirect();
         return;
       }
       navigator.pushNamedAndRemoveUntil('/', (_) => false);

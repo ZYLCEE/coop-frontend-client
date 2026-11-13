@@ -1,28 +1,28 @@
+import 'loan_application_flow.dart';
+import 'widgets/loan_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'app_theme.dart';
 import 'loan_calculator_service.dart';
 import 'documents_disbursement_screen.dart';
+import 'loan_participants_screen.dart';
 import 'models/loan_policy.dart';
+import 'models/loan_application_draft.dart';
 import 'services/database_service.dart';
 import 'application_state.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LoanCalculatorScreen extends StatefulWidget {
-  final LoanType? initialLoanType;
+  final LoanApplicationFlow flow;
 
-  const LoanCalculatorScreen({super.key, this.initialLoanType});
+  const LoanCalculatorScreen({super.key, required this.flow});
 
   @override
   State<LoanCalculatorScreen> createState() => _LoanCalculatorScreenState();
 }
 
 class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
-  late LoanType _selectedLoanType;
-  double _loanAmount = 50000.0;
-  int _selectedTenure = 12;
-  late LoanComputation _computation;
-  LoanPolicySettings? _policy;
+  late final _draft = widget.flow.draft;
   bool _policyLoading = true;
   String? _policyError;
   Set<LoanType> _blockedLoanTypes = const {};
@@ -30,24 +30,11 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedLoanType =
-        widget.initialLoanType ?? LoanTypeCatalog.available.first;
-    _computation = _calculateWith(
-      const LoanPolicySettings(
-        baseInterestRatePercent: 1.5,
-        processingFeePercent: 1,
-        serviceFeePercent: 0.5,
-        minMemberTenureMonths: 6,
-        minLoanAmount: 1000,
-        maxLoanAmount: 500000,
-        maxLoanMultiplier: 3,
-        penaltyRatePercent: 2,
-        coMakerRequiredAbove: 50000,
-        collateralRequiredAbove: 200000,
-        loanProcessingTime: '3–5',
-      ),
-    );
-    _loadLoanPolicy();
+    if (_draft.policy == null) {
+      _loadLoanPolicy();
+    } else {
+      _policyLoading = false;
+    }
   }
 
   Future<void> _loadLoanPolicy() async {
@@ -87,21 +74,21 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
             (type) => LoanEligibility.blockingApplication(type, loans) != null,
           )
           .toSet();
-      if (!mounted) return;
+      if (!mounted || !widget.flow.isActive) return;
       ApplicationState.loanProcessingTime = policy.loanProcessingTime;
       setState(() {
-        _policy = policy;
+        _draft.policy = policy;
         _blockedLoanTypes = blockedTypes;
-        if (widget.initialLoanType == null) {
-          _selectedLoanType = LoanTypeCatalog.available.firstWhere(
+        if (blockedTypes.contains(_draft.loanType)) {
+          _draft.loanType = LoanTypeCatalog.available.firstWhere(
             (type) => !blockedTypes.contains(type),
-            orElse: () => _selectedLoanType,
+            orElse: () => _draft.loanType,
           );
         }
-        _loanAmount = _loanAmount
+        _draft.amount = _draft.amount
             .clamp(policy.minLoanAmount, policy.maxLoanAmount)
             .toDouble();
-        _computation = _calculateWith(policy);
+        _draft.computation = _calculateWith(policy);
         _policyLoading = false;
       });
     } catch (error) {
@@ -117,41 +104,24 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
 
   LoanComputation _calculateWith(LoanPolicySettings policy) =>
       LoanCalculatorService().calculate(
-        principal: _loanAmount
+        principal: _draft.amount
             .clamp(policy.minLoanAmount, policy.maxLoanAmount)
             .toDouble(),
-        months: _selectedTenure,
-        loanType: _selectedLoanType,
+        months: _draft.tenure,
+        loanType: _draft.loanType,
         baseInterestRatePercent: policy.baseInterestRatePercent,
         processingFeePercent: policy.processingFeePercent,
         serviceFeePercent: policy.serviceFeePercent,
       );
 
   void _updateComputation() {
-    setState(() {
-      _computation = _calculateWith(
-        _policy ??
-            const LoanPolicySettings(
-              baseInterestRatePercent: 1.5,
-              processingFeePercent: 1,
-              serviceFeePercent: 0.5,
-              minMemberTenureMonths: 6,
-              minLoanAmount: 1000,
-              maxLoanAmount: 500000,
-              maxLoanMultiplier: 3,
-              penaltyRatePercent: 2,
-              coMakerRequiredAbove: 50000,
-              collateralRequiredAbove: 200000,
-              loanProcessingTime: '3–5',
-            ),
-      );
-    });
+    _draft.computation = _calculateWith(_draft.policy!);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F5F4),
+      backgroundColor: AppTheme.background,
       appBar: _buildAppBar(),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -172,7 +142,7 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
                       children: [
                         Text(
                           _policyError!,
-                          style: const TextStyle(color: Colors.red),
+                          style: const TextStyle(color: AppTheme.danger),
                           textAlign: TextAlign.center,
                         ),
                         TextButton(
@@ -183,28 +153,55 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
                     ),
                   ),
                 ),
-              if (_policy != null && _policyError == null) ...[
-                const LoanProgressIndicator(currentStep: 0),
+              if (_draft.policy != null && _policyError == null) ...[
+                LoanProgressIndicator.forApplication(
+                  LoanApplicationStep.details,
+                  participantsDemo: widget.flow.participantsDemo,
+                  previewOnly: widget.flow.previewOnly,
+                  hasParticipants: widget.flow.hasParticipantsStep,
+                ),
                 const SizedBox(height: AppTheme.spacingL),
                 LoanTypeDropdown(
-                  selectedType: _selectedLoanType,
+                  selectedType: _draft.loanType,
                   blockedTypes: _blockedLoanTypes,
                   onChanged: (type) {
                     setState(() {
-                      _selectedLoanType = type;
+                      _draft.loanType = type;
                       _updateComputation();
                     });
                   },
                 ),
                 const SizedBox(height: AppTheme.spacingL),
+                _LoanOptionSelector<LoanApplicationKind>(
+                  label: 'APPLICATION TYPE',
+                  choices: {
+                    for (final kind in LoanApplicationKind.values)
+                      kind: kind.label,
+                  },
+                  selected: _draft.applicationKind,
+                  onChanged: (kind) => setState(() {
+                    _draft.applicationKind = _draft.applicationKind == kind
+                        ? null
+                        : kind;
+                  }),
+                ),
+                const SizedBox(height: AppTheme.spacingS),
+                const Text(
+                  'Optional for this draft. This choice is not sent with the application.',
+                  style: AppTheme.captionRegular,
+                ),
+                const SizedBox(height: AppTheme.spacingL),
                 LoanAmountSlider(
-                  amount: _loanAmount,
-                  minimum: _policy!.minLoanAmount,
-                  maximum: _policy!.maxLoanAmount,
+                  amount: _draft.amount,
+                  minimum: _draft.policy!.minLoanAmount,
+                  maximum: _draft.policy!.maxLoanAmount,
                   onChanged: (value) {
                     setState(() {
-                      _loanAmount = value
-                          .clamp(_policy!.minLoanAmount, _policy!.maxLoanAmount)
+                      _draft.amount = value
+                          .clamp(
+                            _draft.policy!.minLoanAmount,
+                            _draft.policy!.maxLoanAmount,
+                          )
                           .toDouble();
                       _updateComputation();
                     });
@@ -212,38 +209,36 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
                 ),
                 const SizedBox(height: AppTheme.spacingL),
                 TenureSelector(
-                  selectedTenure: _selectedTenure,
+                  selectedTenure: _draft.tenure,
                   onChanged: (tenure) {
                     setState(() {
-                      _selectedTenure = tenure;
+                      _draft.tenure = tenure;
                       _updateComputation();
                     });
                   },
                 ),
                 const SizedBox(height: AppTheme.spacingL),
-                LiveBreakdownCard(computation: _computation),
+                LiveBreakdownCard(computation: _draft.computation!),
                 const SizedBox(height: AppTheme.spacingL),
                 PaymentScheduleCard(
-                  computation: _computation,
-                  months: _selectedTenure,
+                  computation: _draft.computation!,
+                  months: _draft.tenure,
                 ),
                 const SizedBox(height: AppTheme.spacingXL),
                 PrimaryButton(
-                  onPressed: _blockedLoanTypes.contains(_selectedLoanType)
+                  label: widget.flow.hasParticipantsStep
+                      ? 'Continue to Participants'
+                      : 'Apply Now',
+                  onPressed: _blockedLoanTypes.contains(_draft.loanType)
                       ? null
                       : () {
-                          Navigator.push(
+                          widget.flow.push(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => DocumentsDisbursementScreen(
-                                loanAmount: _loanAmount,
-                                loanType: _selectedLoanType,
-                                tenure: _selectedTenure,
-                                computation: _computation,
-                                collateralRequiredAbove:
-                                    _policy!.collateralRequiredAbove,
-                              ),
-                            ),
+                            (_) => widget.flow.hasParticipantsStep
+                                ? LoanParticipantsScreen(flow: widget.flow)
+                                : DocumentsDisbursementScreen.forFlow(
+                                    widget.flow,
+                                  ),
                           );
                         },
                 ),
@@ -277,82 +272,6 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
         ),
       ),
       centerTitle: true,
-    );
-  }
-}
-
-class LoanProgressIndicator extends StatelessWidget {
-  final int currentStep;
-
-  const LoanProgressIndicator({super.key, required this.currentStep});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _buildStep('Loan Details', 0, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 0
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Documents', 1, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 1
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Review', 2, currentStep),
-      ],
-    );
-  }
-
-  Widget _buildStep(String label, int step, int currentStep) {
-    final isActive = step == currentStep;
-    final isCompleted = step < currentStep;
-
-    return Column(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: isCompleted
-                ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : Text(
-                    '${step + 1}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFF7D8A82),
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
     );
   }
 }
@@ -557,7 +476,7 @@ class _LoanAmountSliderState extends State<LoanAmountSlider> {
                 ),
                 onChanged: (value) {
                   final parsed = double.tryParse(value);
-                  if (parsed != null) {
+                  if (parsed != null && parsed.isFinite) {
                     final clamped = parsed.clamp(
                       widget.minimum,
                       widget.maximum,
@@ -568,7 +487,7 @@ class _LoanAmountSliderState extends State<LoanAmountSlider> {
                 onEditingComplete: () {
                   final value = _controller.text;
                   final parsed = double.tryParse(value);
-                  if (parsed == null) {
+                  if (parsed == null || !parsed.isFinite) {
                     // Restore the current widget amount on invalid input
                     _controller.text = widget.amount.toStringAsFixed(0);
                   } else {
@@ -596,34 +515,39 @@ class _LoanAmountSliderState extends State<LoanAmountSlider> {
                 onChanged: widget.onChanged,
               ),
               const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    LoanCalculatorService.formatCurrency(widget.minimum),
-                    style: const TextStyle(
-                      color: Color(0xFF7D8A82),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+              SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  spacing: AppTheme.spacingS,
+                  runSpacing: AppTheme.spacingXS,
+                  children: [
+                    Text(
+                      LoanCalculatorService.formatCurrency(widget.minimum),
+                      style: const TextStyle(
+                        color: Color(0xFF7D8A82),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                  Text(
-                    'Maximum ${LoanCalculatorService.formatCurrency(widget.maximum)}',
-                    style: const TextStyle(
-                      color: AppTheme.accentGold,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                    Text(
+                      'Maximum ${LoanCalculatorService.formatCurrency(widget.maximum)}',
+                      style: const TextStyle(
+                        color: AppTheme.accentGold,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  Text(
-                    LoanCalculatorService.formatCurrency(widget.maximum),
-                    style: const TextStyle(
-                      color: Color(0xFF7D8A82),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+                    Text(
+                      LoanCalculatorService.formatCurrency(widget.maximum),
+                      style: const TextStyle(
+                        color: Color(0xFF7D8A82),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -644,13 +568,35 @@ class TenureSelector extends StatelessWidget {
   });
 
   @override
+  Widget build(BuildContext context) => _LoanOptionSelector<int>(
+    label: 'REPAYMENT TENURE',
+    choices: const {3: '3mo', 6: '6mo', 12: '12mo', 24: '24mo'},
+    selected: selectedTenure,
+    onChanged: onChanged,
+  );
+}
+
+class _LoanOptionSelector<T> extends StatelessWidget {
+  const _LoanOptionSelector({
+    required this.label,
+    required this.choices,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final String label;
+  final Map<T, String> choices;
+  final T? selected;
+  final ValueChanged<T> onChanged;
+
+  @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'REPAYMENT TENURE',
-          style: TextStyle(
+        Text(
+          label,
+          style: const TextStyle(
             color: Color(0xFF7D8A82),
             fontSize: 11,
             fontWeight: FontWeight.w600,
@@ -659,25 +605,20 @@ class TenureSelector extends StatelessWidget {
         ),
         const SizedBox(height: AppTheme.spacingM),
         Row(
+          spacing: AppTheme.spacingS,
           children: [
-            _buildTenureButton('3mo', 3),
-            const SizedBox(width: 8),
-            _buildTenureButton('6mo', 6),
-            const SizedBox(width: 8),
-            _buildTenureButton('12mo', 12),
-            const SizedBox(width: 8),
-            _buildTenureButton('24mo', 24),
+            for (final choice in choices.entries) _buildChoice(choice),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildTenureButton(String label, int tenure) {
-    final isSelected = selectedTenure == tenure;
+  Widget _buildChoice(MapEntry<T, String> choice) {
+    final isSelected = selected == choice.key;
     return Expanded(
       child: GestureDetector(
-        onTap: () => onChanged(tenure),
+        onTap: () => onChanged(choice.key),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
@@ -685,7 +626,7 @@ class TenureSelector extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
-            label,
+            choice.value,
             textAlign: TextAlign.center,
             style: TextStyle(
               color: isSelected ? Colors.white : const Color(0xFF183A24),
@@ -710,7 +651,7 @@ class LiveBreakdownCard extends StatelessWidget {
       padding: const EdgeInsets.all(AppTheme.spacingL),
       decoration: BoxDecoration(
         color: const Color(0xFF1F6B3A),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
@@ -811,26 +752,31 @@ class BreakdownRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: isGold ? AppTheme.accentGold : Colors.white,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
+    return SizedBox(
+      width: double.infinity,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        spacing: AppTheme.spacingS,
+        runSpacing: AppTheme.spacingXS,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: isGold ? AppTheme.accentGold : Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            color: isGold ? AppTheme.accentGold : Colors.white,
-            fontSize: isBold ? 16 : 13,
-            fontWeight: isBold ? FontWeight.w700 : FontWeight.w500,
+          Text(
+            value,
+            style: TextStyle(
+              color: isGold ? AppTheme.accentGold : Colors.white,
+              fontSize: isBold ? 16 : 13,
+              fontWeight: isBold ? FontWeight.w700 : FontWeight.w500,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -851,7 +797,7 @@ class PaymentScheduleCard extends StatelessWidget {
       padding: const EdgeInsets.all(AppTheme.spacingL),
       decoration: BoxDecoration(
         color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
@@ -946,7 +892,13 @@ class PaymentScheduleItem extends StatelessWidget {
 class PrimaryButton extends StatelessWidget {
   final VoidCallback? onPressed;
 
-  const PrimaryButton({super.key, required this.onPressed});
+  const PrimaryButton({
+    super.key,
+    required this.onPressed,
+    this.label = 'Apply Now',
+  });
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -963,9 +915,9 @@ class PrimaryButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        child: const Text(
-          'Apply Now',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
     );

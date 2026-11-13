@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'app_theme.dart';
 import 'confirmpasscreen.dart';
 import 'dashboard.dart';
 import 'services/supabase_service.dart';
 import 'services/auth_error_message.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, this.authenticate, this.notice});
+  const LoginScreen({
+    super.key,
+    this.authenticate,
+    this.authenticateAdmin,
+    this.notice,
+  });
   final String? notice;
 
   final Future<bool> Function({
@@ -13,6 +19,11 @@ class LoginScreen extends StatefulWidget {
     required String password,
   })?
   authenticate;
+  final Future<void> Function({
+    required String email,
+    required String password,
+  })?
+  authenticateAdmin;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -23,26 +34,38 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _isAdminLogin = false;
   final _formKey = GlobalKey<FormState>();
 
   Future<void> _handleLogin() async {
     if (_isLoading || !_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
-      final identifier = _memberIdController.text.trim();
-      final password = _passwordController.text;
-      final authenticate = widget.authenticate;
-      final mustChangePassword = authenticate != null
-          ? await authenticate(memberId: identifier, password: password)
-          : identifier.contains('@')
-          ? await SupabaseService().signInWithMemberEmail(
-              email: identifier,
-              password: password,
-            )
-          : await SupabaseService().signInWithMemberId(
-              memberId: identifier,
-              password: password,
-            );
+      final bool mustChangePassword;
+      if (_isAdminLogin) {
+        final authenticateAdmin =
+            widget.authenticateAdmin ?? SupabaseService().signIn;
+        await authenticateAdmin(
+          email: _memberIdController.text.trim(),
+          password: _passwordController.text,
+        );
+        mustChangePassword = false;
+      } else {
+        final identifier = _memberIdController.text.trim();
+        final password = _passwordController.text;
+        final authenticate = widget.authenticate;
+        mustChangePassword = authenticate != null
+            ? await authenticate(memberId: identifier, password: password)
+            : identifier.contains('@')
+            ? await SupabaseService().signInWithMemberEmail(
+                email: identifier,
+                password: password,
+              )
+            : await SupabaseService().signInWithMemberId(
+                memberId: identifier,
+                password: password,
+              );
+      }
       if (!mounted) return;
       _passwordController.clear();
       Navigator.pushReplacement(
@@ -58,7 +81,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(getAuthErrorMessage(error)),
-          backgroundColor: Colors.red,
+          backgroundColor: AppTheme.danger,
         ),
       );
     } finally {
@@ -122,8 +145,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'MEMBER ID OR EMAIL',
+                      Text(
+                        _isAdminLogin
+                            ? 'SUPERADMIN EMAIL'
+                            : 'MEMBER ID OR EMAIL',
                         style: TextStyle(
                           color: Colors.black,
                           fontSize: 12,
@@ -135,13 +160,28 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _memberIdController,
                         enabled: !_isLoading,
                         autocorrect: false,
-                        textCapitalization: TextCapitalization.characters,
+                        keyboardType: _isAdminLogin
+                            ? TextInputType.emailAddress
+                            : TextInputType.text,
+                        textCapitalization: _isAdminLogin
+                            ? TextCapitalization.none
+                            : TextCapitalization.characters,
                         textInputAction: TextInputAction.next,
                         autovalidateMode: AutovalidateMode.onUserInteraction,
                         validator: (value) {
                           final id = (value ?? '').trim().toUpperCase();
                           if (id.isEmpty) {
-                            return 'Please enter your Member ID.';
+                            return _isAdminLogin
+                                ? 'Please enter your superadmin email.'
+                                : 'Please enter your Member ID.';
+                          }
+                          if (_isAdminLogin) {
+                            if (!RegExp(
+                              r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                            ).hasMatch((value ?? '').trim())) {
+                              return 'Please enter a valid email address.';
+                            }
+                            return null;
                           }
                           if (id.contains('@')) {
                             return RegExp(
@@ -158,7 +198,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           return null;
                         },
                         decoration: InputDecoration(
-                          hintText: 'e.g. CSUCC-2026-0001',
+                          hintText: _isAdminLogin
+                              ? 'name@example.com'
+                              : 'e.g. CSUCC-2026-0001',
                           hintStyle: const TextStyle(color: Color(0xFF9E9E9E)),
                           filled: true,
                           fillColor: const Color(0xFFFAFAFA),
@@ -248,10 +290,29 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
                   // Contact info text
-                  const Text(
-                    "Didn't receive your login details? Contact Cooperative Admin",
+                  Text(
+                    _isAdminLogin
+                        ? 'Superadmin access must be enabled by Cooperative Admin.'
+                        : "Didn't receive your login details? Contact Cooperative Admin",
                     style: TextStyle(color: Colors.grey, fontSize: 12),
                     textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () {
+                            setState(() {
+                              _isAdminLogin = !_isAdminLogin;
+                              _memberIdController.clear();
+                              _formKey.currentState?.reset();
+                            });
+                          },
+                    child: Text(
+                      _isAdminLogin
+                          ? 'Sign in with Member ID instead'
+                          : 'Superadmin sign in',
+                    ),
                   ),
                   const SizedBox(height: 48),
                   // Login button
@@ -276,8 +337,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               height: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text(
-                              'Login',
+                          : Text(
+                              _isAdminLogin ? 'Superadmin Login' : 'Login',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,

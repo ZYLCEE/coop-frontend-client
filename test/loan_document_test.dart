@@ -76,6 +76,36 @@ void main() {
     },
   );
   test(
+    'Document policy and upload precheck retain their threshold boundaries',
+    () {
+      final pair = [
+        document(LoanDocumentKind.payslip),
+        document(LoanDocumentKind.validId),
+      ];
+      bool requiresCollateral(double amount, double policyThreshold) =>
+          LoanDocumentKind.collateral.isRequiredFor(
+            amount: amount,
+            collateralRequiredAbove: policyThreshold,
+          );
+      for (final (amount, required) in [
+        (199999.99, false),
+        (200000.0, false),
+        (200000.01, true),
+      ]) {
+        expect(requiresCollateral(amount, 200000), required);
+        expect(
+          () => validateLoanDocuments(pair, amount),
+          required ? throwsStateError : returnsNormally,
+        );
+      }
+      expect(requiresCollateral(200000.01, 250000), false);
+      expect(() => validateLoanDocuments(pair, 200000.01), throwsStateError);
+      expect(requiresCollateral(199999.99, 150000), true);
+      expect(() => validateLoanDocuments(pair, 199999.99), returnsNormally);
+    },
+  );
+
+  test(
     'Files source reads a real byte stream instead of inventing a filename',
     () async {
       final service = DocumentPickerService(

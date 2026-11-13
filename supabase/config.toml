@@ -1,0 +1,5 @@
+[functions.co-maker-lookup]
+verify_jwt = true
+
+[functions.co-maker-invitation]
+verify_jwt = true

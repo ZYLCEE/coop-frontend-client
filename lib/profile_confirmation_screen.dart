@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'loan_application_flow.dart';
 import 'member_information_card.dart';
 import 'app_theme.dart';
 import 'loan_calculator_screen.dart';
 import 'loan_calculator_service.dart';
+import 'loan_application_mode.dart';
 
 class ProfileConfirmationScreen extends StatefulWidget {
   final LoanType loanType;
@@ -15,12 +18,49 @@ class ProfileConfirmationScreen extends StatefulWidget {
 }
 
 class _ProfileConfirmationScreenState extends State<ProfileConfirmationScreen> {
-  bool _isConfirmed = false;
+  late final _flow = LoanApplicationFlow(
+    widget.loanType,
+    Supabase.instance.client,
+    requireCoMaker: !loanParticipantsDemoBuild,
+  );
+  Map<String, dynamic>? _loadedApplicant;
+  bool _attached = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_attached) return;
+    final route = ModalRoute.of<void>(context);
+    if (route != null) _flow.attach(route);
+    _attached = true;
+  }
+
+  @override
+  void dispose() {
+    _flow.close(removeRoutes: false);
+    super.dispose();
+  }
+
+  Future<void> _continueApplication() async {
+    if (!_flow.isActive ||
+        !_flow.draft.profileConfirmed ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    await _flow.push(context, (_) => LoanCalculatorScreen(flow: _flow));
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (!_flow.isActive) {
+      return Scaffold(
+        appBar: _buildAppBar(),
+        body: const Center(child: Text('Sign in to start a loan application.')),
+      );
+    }
+    final draft = _flow.draft;
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F5F4),
+      backgroundColor: AppTheme.background,
       appBar: _buildAppBar(),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -30,32 +70,51 @@ class _ProfileConfirmationScreenState extends State<ProfileConfirmationScreen> {
             children: [
               const WarningBanner(),
               const SizedBox(height: AppTheme.spacingL),
-              ProfileInformationCard(),
-              const SizedBox(height: AppTheme.spacingL),
-              ConfirmationCard(
-                isConfirmed: _isConfirmed,
-                onChanged: (value) {
-                  setState(() {
-                    _isConfirmed = value ?? false;
-                  });
+              LiveMemberInformationCard(
+                snapshot: draft.applicant,
+                onLoaded: (member) {
+                  if (_flow.isActive) setState(() => _loadedApplicant = member);
                 },
               ),
               const SizedBox(height: AppTheme.spacingL),
-              PrimaryButton(
-                isEnabled: _isConfirmed,
-                onPressed: _isConfirmed
-                    ? () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => LoanCalculatorScreen(
-                              initialLoanType: widget.loanType,
-                            ),
-                          ),
-                        );
-                      }
-                    : null,
+              ConfirmationCard(
+                isConfirmed: draft.profileConfirmed,
+                onChanged: _loadedApplicant == null
+                    ? null
+                    : (value) {
+                        final applicant = draft.applicant ?? _loadedApplicant;
+                        if (!_flow.isActive || applicant == null) return;
+                        setState(() {
+                          draft.profileConfirmed = value ?? false;
+                          draft.applicant = draft.profileConfirmed
+                              ? Map<String, dynamic>.unmodifiable(applicant)
+                              : null;
+                        });
+                      },
               ),
+              const SizedBox(height: AppTheme.spacingL),
+              PrimaryButton(
+                label: _flow.participantsDemo
+                    ? 'Proceed to Loan Application'
+                    : 'Proceed to Loan Calculator',
+                isEnabled: draft.profileConfirmed,
+                onPressed: !draft.profileConfirmed
+                    ? null
+                    : _flow.participantsDemo
+                    ? () => _flow.push(
+                        context,
+                        (_) => LoanCalculatorScreen(flow: _flow),
+                      )
+                    : _continueApplication,
+              ),
+              if (!_flow.participantsDemo) ...[
+                const SizedBox(height: AppTheme.spacingS),
+                const Text(
+                  'Verify a co-maker, collect their consent, then submit your application for cooperative review.',
+                  textAlign: TextAlign.center,
+                  style: AppTheme.captionRegular,
+                ),
+              ],
             ],
           ),
         ),
@@ -96,7 +155,7 @@ class WarningBanner extends StatelessWidget {
       padding: const EdgeInsets.all(AppTheme.spacingL),
       decoration: BoxDecoration(
         color: const Color(0xFFFFF8EC),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         border: Border.all(color: const Color(0xFFE0C46B), width: 1),
       ),
       child: Row(
@@ -109,7 +168,11 @@ class WarningBanner extends StatelessWidget {
           const SizedBox(width: AppTheme.spacingM),
           Expanded(
             child: Text(
-              'You can edit your name, contact number, and address in Profile. For other corrections, contact the CSUCC Coop Admin office.',
+              'Review the details from your registered member record before confirming. '
+              'You can edit your name, contact number, and address in Profile. '
+              'For other corrections, visit the CSUCC cooperative office. '
+              'This application keeps the details you confirm here; start a new '
+              'application to use updated details.',
               style: const TextStyle(
                 color: Color(0xFF8B7355),
                 fontSize: 13,
@@ -121,15 +184,6 @@ class WarningBanner extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class ProfileInformationCard extends StatelessWidget {
-  const ProfileInformationCard({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const LiveMemberInformationCard();
   }
 }
 
@@ -172,7 +226,7 @@ class ProfileInfoRow extends StatelessWidget {
 
 class ConfirmationCard extends StatelessWidget {
   final bool isConfirmed;
-  final ValueChanged<bool?> onChanged;
+  final ValueChanged<bool?>? onChanged;
 
   const ConfirmationCard({
     super.key,
@@ -186,7 +240,7 @@ class ConfirmationCard extends StatelessWidget {
       padding: const EdgeInsets.all(AppTheme.spacingL),
       decoration: BoxDecoration(
         color: AppTheme.cardWhite,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Row(
@@ -217,19 +271,29 @@ class ConfirmationCard extends StatelessWidget {
 }
 
 class PrimaryButton extends StatelessWidget {
+  final String label;
   final bool isEnabled;
   final VoidCallback? onPressed;
 
-  const PrimaryButton({super.key, required this.isEnabled, this.onPressed});
+  const PrimaryButton({
+    super.key,
+    required this.label,
+    required this.isEnabled,
+    this.onPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 52,
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
+          minimumSize: const Size(0, 52),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppTheme.spacingM,
+            vertical: AppTheme.spacingS,
+          ),
           backgroundColor: isEnabled
               ? AppTheme.primaryGreen
               : const Color(0xFFB8C4B8),
@@ -239,9 +303,10 @@ class PrimaryButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        child: const Text(
-          'Proceed to Loan Application',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
     );

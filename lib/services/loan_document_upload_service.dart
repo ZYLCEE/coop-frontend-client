@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../loan_application_mode.dart';
 import '../models/loan_document.dart';
 import '../models/loan_consent_submission.dart';
 
@@ -15,14 +16,11 @@ class LoanDocumentUploadService {
     required double amount,
     required List<SelectedLoanDocument> documents,
     required int tenureMonths,
-    LoanConsentSubmission? consent,
+    required LoanConsentSubmission consent,
     void Function(String)? onProgress,
+    bool participantsDemo = false,
   }) async {
-    if (consent == null) {
-      throw StateError(
-        'Review and accept the borrower agreement before submitting.',
-      );
-    }
+    requireLiveLoanOperations(participantsDemo: participantsDemo);
     consent.validate();
     validateLoanDocuments(documents, amount);
     final user = _client.auth.currentUser;

@@ -1,12 +1,17 @@
+import 'dart:async';
+
+import 'loan_application_flow.dart';
+import 'widgets/loan_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
 import 'application_service.dart';
 import 'services/supabase_service.dart';
 import 'services/database_service.dart';
-import 'models/loan_document.dart';
-import 'models/loan_consent_submission.dart';
+import 'services/co_maker_invitation_service.dart';
+import 'loan_calculator_service.dart';
 import 'loan_application_submitted_screen.dart';
 
 String maskEmailAddress(String email) {
@@ -23,20 +28,9 @@ String maskEmailAddress(String email) {
 }
 
 class EmailOtpVerificationScreen extends StatefulWidget {
-  final double loanAmount;
-  final String loanType;
-  final int tenure;
-  final List<SelectedLoanDocument> documents;
-  final LoanConsentSubmission? consent;
+  final LoanApplicationFlow flow;
 
-  const EmailOtpVerificationScreen({
-    super.key,
-    required this.loanAmount,
-    required this.loanType,
-    this.tenure = 12,
-    this.documents = const [],
-    this.consent,
-  });
+  const EmailOtpVerificationScreen({super.key, required this.flow});
 
   @override
   State<EmailOtpVerificationScreen> createState() =>
@@ -52,6 +46,7 @@ class _EmailOtpVerificationScreenState
   final List<FocusNode> _focusNodes = List.generate(8, (index) => FocusNode());
 
   int _remainingSeconds = 60;
+  Timer? _resendTimer;
   bool _canResend = false;
   bool _isVerifying = false;
   bool _isEmailVerified = false;
@@ -60,6 +55,8 @@ class _EmailOtpVerificationScreenState
   String? _verifiedEmail;
   String? _emailError;
   bool _otpSent = false;
+  bool get _active => mounted && widget.flow.canUseLiveSubmission;
+  bool get _canVerify => _active && ModalRoute.of(context)?.isCurrent == true;
 
   @override
   void initState() {
@@ -68,10 +65,14 @@ class _EmailOtpVerificationScreenState
   }
 
   Future<void> _sendInitialOtp() async {
+    if (!_active) return;
     try {
       final email = await _loadVerifiedRegisteredEmail();
-      if (email == null) return;
-      await SupabaseService().sendOtp(email: email);
+      if (email == null || !_active) return;
+      await SupabaseService().sendOtp(
+        email: email,
+        participantsDemo: widget.flow.participantsDemo,
+      );
       if (mounted) {
         setState(() => _otpSent = true);
         _startResendTimer();
@@ -125,6 +126,7 @@ class _EmailOtpVerificationScreenState
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
     for (var controller in _otpControllers) {
       controller.dispose();
     }
@@ -135,24 +137,24 @@ class _EmailOtpVerificationScreenState
   }
 
   void _startResendTimer() {
+    _resendTimer?.cancel();
     setState(() {
       _remainingSeconds = 60;
       _canResend = false;
     });
 
-    Future.doWhile(() async {
-      await Future.delayed(const Duration(seconds: 1));
-      if (!mounted) return false;
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       setState(() {
         _remainingSeconds--;
-      });
-      if (_remainingSeconds <= 0) {
-        setState(() {
+        if (_remainingSeconds <= 0) {
           _canResend = true;
-        });
-        return false;
-      }
-      return true;
+          timer.cancel();
+        }
+      });
     });
   }
 
@@ -166,6 +168,8 @@ class _EmailOtpVerificationScreenState
     if (_isOtpComplete()) {
       _focusNodes[index].unfocus();
     }
+
+    setState(() {});
   }
 
   bool _isOtpComplete() {
@@ -186,12 +190,15 @@ class _EmailOtpVerificationScreenState
   }
 
   void _handleResend() async {
-    if (!_canResend) return;
+    if (!_active || !_canResend) return;
 
     try {
       final email = _verifiedEmail ?? await _loadVerifiedRegisteredEmail();
-      if (email == null) return;
-      await SupabaseService().sendOtp(email: email);
+      if (email == null || !_active) return;
+      await SupabaseService().sendOtp(
+        email: email,
+        participantsDemo: widget.flow.participantsDemo,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -217,14 +224,14 @@ class _EmailOtpVerificationScreenState
             : 'Unable to resend the verification code. Check your email settings or try again later.';
         setState(() => _emailError = message);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message), backgroundColor: Colors.red),
+          SnackBar(content: Text(message), backgroundColor: AppTheme.danger),
         );
       }
     }
   }
 
   void _handleVerify() async {
-    if (!_isOtpComplete() || _isVerifying) return;
+    if (!_canVerify || !_isOtpComplete() || _isVerifying) return;
 
     setState(() {
       _isVerifying = true;
@@ -236,7 +243,8 @@ class _EmailOtpVerificationScreenState
     final otp = _getOtpValue();
 
     try {
-      final consent = widget.consent;
+      final draft = widget.flow.draft;
+      final consent = draft.consent;
       if (consent == null) {
         throw StateError(
           'Return to Review and confirm your agreement and witness names.',
@@ -250,24 +258,51 @@ class _EmailOtpVerificationScreenState
             _emailError ?? 'The registered email could not be verified.',
           );
         }
-        await SupabaseService().verifyOtp(email: email, token: otp);
+        if (!_canVerify) return;
+        await SupabaseService().verifyOtp(
+          email: email,
+          token: otp,
+          participantsDemo: widget.flow.participantsDemo,
+        );
         _isEmailVerified = true;
       }
 
-      _referenceNumber ??= ApplicationService.generateReferenceNumber();
+      if (!_canVerify) return;
+      if (draft.requireCoMaker) {
+        final applicationId = draft.applicationId;
+        final requestId = draft.coMakerRequestId;
+        if (applicationId == null || requestId == null) {
+          throw StateError(
+            'Send a co-maker invitation before submitting this loan.',
+          );
+        }
+        final consent = await CoMakerInvitationService(
+          supabaseUrl: dotenv.env['SUPABASE_URL'] ?? '',
+        ).getRequest(requestId);
+        if (consent['status'] != 'accepted' ||
+            consent['application_id'] != applicationId) {
+          throw StateError(
+            'The co-maker must accept and verify the invitation before submission.',
+          );
+        }
+      }
+      _referenceNumber ??=
+          draft.applicationId ?? ApplicationService.generateReferenceNumber();
+      draft.applicationId ??= _referenceNumber;
       await DatabaseService().submitLoanApplication(
         applicationId: _referenceNumber!,
-        loanType: widget.loanType,
-        amount: widget.loanAmount,
-        documents: widget.documents,
-        tenureMonths: widget.tenure,
+        loanType: draft.loanType.label,
+        amount: draft.amount,
+        documents: draft.documents.values.toList(growable: false),
+        tenureMonths: draft.tenure,
         consent: consent,
+        participantsDemo: widget.flow.participantsDemo,
         onProgress: (status) {
           if (mounted) setState(() => _submissionStatus = status);
         },
       );
 
-      if (mounted) {
+      if (_canVerify) {
         _clearOtp(requestFocus: false);
         Navigator.pushReplacement(
           context,
@@ -279,6 +314,7 @@ class _EmailOtpVerificationScreenState
           ),
         );
       }
+      widget.flow.close();
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -291,7 +327,7 @@ class _EmailOtpVerificationScreenState
                   ? 'Application could not be submitted: ${error is StateError ? error.message : 'Please check your connection and retry.'}'
                   : 'Invalid verification code. Please try again.',
             ),
-            backgroundColor: Color(0xFFD9534F),
+            backgroundColor: AppTheme.danger,
           ),
         );
         if (!_isEmailVerified) _clearOtp();
@@ -301,8 +337,20 @@ class _EmailOtpVerificationScreenState
 
   @override
   Widget build(BuildContext context) {
+    if (widget.flow.previewOnly) {
+      return Scaffold(
+        appBar: _buildAppBar(),
+        body: const Center(child: Text('Submission Not Yet Available')),
+      );
+    }
+    if (widget.flow.participantsDemo) {
+      return Scaffold(
+        appBar: _buildAppBar(),
+        body: const Center(child: Text('End of participant selection demo.')),
+      );
+    }
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F5F4),
+      backgroundColor: AppTheme.background,
       appBar: _buildAppBar(),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -388,82 +436,6 @@ class _EmailOtpVerificationScreenState
   }
 }
 
-class LoanProgressIndicator extends StatelessWidget {
-  final int currentStep;
-
-  const LoanProgressIndicator({super.key, required this.currentStep});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _buildStep('Loan Details', 0, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 0
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Documents', 1, currentStep),
-        Expanded(
-          child: Container(
-            height: 2,
-            color: currentStep >= 1
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-          ),
-        ),
-        _buildStep('Review', 2, currentStep),
-      ],
-    );
-  }
-
-  Widget _buildStep(String label, int step, int currentStep) {
-    final isActive = step == currentStep;
-    final isCompleted = step < currentStep;
-
-    return Column(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFFE0E0E0),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: isCompleted
-                ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : Text(
-                    '${step + 1}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            color: isActive || isCompleted
-                ? AppTheme.primaryGreen
-                : const Color(0xFF7D8A82),
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class VerificationHeader extends StatelessWidget {
   const VerificationHeader({
     super.key,
@@ -529,7 +501,7 @@ class VerificationHeader extends StatelessWidget {
             child: Text(
               error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.red, fontSize: 12),
+              style: const TextStyle(color: AppTheme.danger, fontSize: 12),
             ),
           ),
       ],

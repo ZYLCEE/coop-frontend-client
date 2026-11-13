@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
 import 'app_bottom_navigation_bar.dart';
+import 'co_maker_invitation_screen.dart';
+import 'schedtracker.dart';
 import 'services/database_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -145,6 +147,38 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     }
   }
 
+  Future<void> _openNotification(NotificationItem notification) async {
+    if (notification.isHighlighted) {
+      await _markAsRead(notification);
+    }
+    final noticeData = notification.data;
+    final application =
+        noticeData != null && noticeData['entityType'] == 'application'
+        ? noticeData['entityKey']
+        : null;
+    if (application is String &&
+        RegExp(r'^[A-Za-z0-9_-]{1,100}$').hasMatch(application)) {
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => LoanDetailsScreen(applicationId: application),
+        ),
+      );
+      if (mounted) await _loadNotifications(background: true);
+      return;
+    }
+    if (notification.type != 'co_maker_invitation') return;
+    final requestId = notification.data?['request_id'];
+    if (requestId is! String || requestId.isEmpty) return;
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CoMakerInvitationReviewScreen(requestId: requestId),
+      ),
+    );
+    if (mounted) await _loadNotifications(background: true);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -176,16 +210,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                                 padding: const EdgeInsets.only(
                                   bottom: AppTheme.spacingM,
                                 ),
-                                child: notification.isHighlighted
-                                    ? GestureDetector(
-                                        onTap: () => _markAsRead(notification),
-                                        child: HighlightedNotificationCard(
-                                          notification: notification,
-                                        ),
-                                      )
-                                    : NotificationCard(
-                                        notification: notification,
-                                      ),
+                                child: NotificationCard(
+                                  notification: notification,
+                                  onAction: notification.actionText == null
+                                      ? null
+                                      : () => _openNotification(notification),
+                                ),
                               );
                             }),
                         ],
@@ -210,6 +240,9 @@ class NotificationItem {
   final Color iconColor;
   final Color iconBgColor;
   bool isHighlighted;
+  final String? databaseId;
+  final String? type;
+  final Map<String, dynamic>? data;
 
   NotificationItem({
     required this.id,
@@ -221,21 +254,44 @@ class NotificationItem {
     required this.iconColor,
     required this.iconBgColor,
     required this.isHighlighted,
+    this.databaseId,
+    this.type,
+    this.data,
   });
 
   factory NotificationItem.fromDatabase(Map<String, dynamic> row) {
     final date = DateTime.tryParse('${row['created_at']}')?.toLocal();
     final type = '${row['type']}'.toLowerCase();
+    final rawData = row['data'];
+    final data = rawData is Map<String, dynamic>
+        ? rawData
+        : rawData is Map
+        ? Map<String, dynamic>.from(rawData)
+        : null;
     final icon = switch (type) {
       'warning' => Icons.warning_amber_outlined,
       'success' => Icons.check_circle_outline,
       'announcement' => Icons.campaign_outlined,
+      'co_maker_invitation' => Icons.handshake_outlined,
       _ => Icons.notifications_none,
     };
+    final id = row['id']?.toString() ?? '';
+    final hasApplication =
+        data != null &&
+        data['entityType'] == 'application' &&
+        data['entityKey'] is String;
     return NotificationItem(
-      id: row['id'] as String,
-      title: row['title'] as String,
-      description: row['message'] as String,
+      id: id,
+      databaseId: id,
+      type: type,
+      data: data,
+      actionText: type == 'co_maker_invitation'
+          ? 'Review Invitation'
+          : hasApplication
+          ? 'View Details'
+          : null,
+      title: row['title']?.toString() ?? 'Notification',
+      description: row['message']?.toString() ?? '',
       timestamp: date == null ? '' : DateFormat.yMMMd().add_jm().format(date),
       icon: icon,
       iconColor: AppTheme.primaryGreen,
@@ -292,15 +348,26 @@ class NotificationAppBar extends StatelessWidget {
 class NotificationCard extends StatelessWidget {
   final NotificationItem notification;
 
-  const NotificationCard({super.key, required this.notification});
+  const NotificationCard({
+    super.key,
+    required this.notification,
+    this.onAction,
+  });
+
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(AppTheme.spacingL),
       decoration: BoxDecoration(
-        color: AppTheme.cardWhite,
+        color: notification.isHighlighted
+            ? AppTheme.highlightedCard
+            : AppTheme.cardWhite,
         borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
+        border: notification.isHighlighted
+            ? Border.all(color: AppTheme.borderGold, width: 1)
+            : null,
         boxShadow: AppTheme.cardShadow,
       ),
       child: Row(
@@ -349,6 +416,11 @@ class NotificationCard extends StatelessWidget {
                     height: 1.4,
                   ),
                 ),
+                if (onAction != null && notification.actionText != null)
+                  TextButton(
+                    onPressed: onAction,
+                    child: Text(notification.actionText!),
+                  ),
               ],
             ),
           ),
