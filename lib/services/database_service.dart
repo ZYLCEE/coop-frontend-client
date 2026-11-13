@@ -107,6 +107,14 @@ class DatabaseService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getMemberApplicationProgress() async {
+    final response = await _supabase.rpc('member_application_progress');
+    if (response is! List) {
+      throw StateError('Application progress returned an invalid response.');
+    }
+    return List<Map<String, dynamic>>.from(response);
+  }
+
   Future<LoanPolicySettings> getLoanPolicySettings() async {
     final response = await _supabase
         .from('loan_policy_settings')

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
@@ -23,7 +25,7 @@ class LoansScreen extends StatefulWidget {
   State<LoansScreen> createState() => _LoansScreenState();
 }
 
-class _LoansScreenState extends State<LoansScreen> {
+class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
   late int _selectedTab = widget.startOnPendingApplications ? 1 : 0;
   int _categoryIndex = 0;
   final _categoryController = PageController();
@@ -34,17 +36,42 @@ class _LoansScreenState extends State<LoansScreen> {
   List<Map<String, dynamic>> _myLoans = [];
   bool _isLoading = true;
   String? _myLoansError;
+  String? _progressLoadError;
+  bool _refreshingMyLoans = false;
+  Timer? _progressRefreshTimer;
+  RealtimeChannel? _loanUpdatesChannel;
+  String? _subscribedMemberId;
+  ValueNotifier<Map<String, dynamic>>? _openApplicationProgress;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadMyLoans();
+    _progressRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted && _selectedTab == 1) {
+        unawaited(_loadMyLoans(showLoading: false));
+      }
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _progressRefreshTimer?.cancel();
+    final channel = _loanUpdatesChannel;
+    if (channel != null) {
+      unawaited(Supabase.instance.client.removeChannel(channel));
+    }
     _categoryController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _selectedTab == 1) {
+      unawaited(_loadMyLoans(showLoading: false));
+    }
   }
 
   void _goToCategory(int index) {
@@ -56,8 +83,10 @@ class _LoansScreenState extends State<LoansScreen> {
     );
   }
 
-  Future<void> _loadMyLoans() async {
-    if (mounted)
+  Future<void> _loadMyLoans({bool showLoading = true}) async {
+    if (_refreshingMyLoans) return;
+    _refreshingMyLoans = true;
+    if (mounted && showLoading)
       setState(() {
         _isLoading = true;
         _myLoansError = null;
@@ -73,13 +102,73 @@ class _LoansScreenState extends State<LoansScreen> {
         return;
       }
 
+      final member = await _dbService.getMember(user.id);
+      _listenForLoanUpdates(member['id']?.toString());
       final loans = await _dbService.getLoanApplications(user.id);
+      var nextProgressError =
+          'Live review progress is unavailable. Pull down to retry.';
+      final progressByApplication = <String, Map<String, dynamic>>{};
+      try {
+        final progressRows = await _dbService.getMemberApplicationProgress();
+        for (final row in progressRows) {
+          final applicationId = row['application_id']?.toString();
+          if (applicationId != null) {
+            progressByApplication[applicationId] = row;
+          }
+        }
+        final hasMissingProgress = loans.any(
+          (loan) => !progressByApplication.containsKey(
+            loan['application_id']?.toString(),
+          ),
+        );
+        nextProgressError = hasMissingProgress
+            ? 'The cooperative review stage could not be loaded. Pull down to retry.'
+            : '';
+      } catch (_) {
+        // Keep loan history available while clearly marking unsynced workflow data.
+      }
+      final refreshedLoans = loans.map((loan) {
+        final progress =
+            progressByApplication[loan['application_id']?.toString()];
+        return {
+          ...loan,
+          if (progress != null) ...{
+            '_workflow_stage': progress['workflow_stage'],
+            '_review_stage': progress['review_stage'],
+            '_crecom_approved': progress['crecom_approved'],
+            '_crecom_assigned': progress['crecom_assigned'],
+            '_bod_approved': progress['bod_approved'],
+            '_bod_assigned': progress['bod_assigned'],
+            '_progress_updated_at': progress['progress_updated_at'],
+          },
+        };
+      }).toList();
       if (mounted) {
         setState(() {
-          _myLoans = loans;
+          _myLoans = refreshedLoans;
           _isLoading = false;
           _myLoansError = null;
+          _progressLoadError = nextProgressError.isEmpty
+              ? null
+              : nextProgressError;
         });
+        final activeProgress = _openApplicationProgress;
+        if (activeProgress != null) {
+          Map<String, dynamic>? application;
+          for (final loan in refreshedLoans) {
+            if (loan['application_id']?.toString() ==
+                _activeProgressApplicationId) {
+              application = loan;
+              break;
+            }
+          }
+          if (application != null) {
+            activeProgress.value = {
+              ...application,
+              '_workflow_sync_error': _progressLoadError,
+            };
+          }
+        }
       }
     } catch (error) {
       if (mounted) {
@@ -92,7 +181,38 @@ class _LoansScreenState extends State<LoansScreen> {
               : 'Unable to load your loan history. Check your connection and retry.';
         });
       }
+    } finally {
+      _refreshingMyLoans = false;
     }
+  }
+
+  String? _activeProgressApplicationId;
+
+  void _listenForLoanUpdates(String? memberId) {
+    if (memberId == null ||
+        memberId.isEmpty ||
+        memberId == _subscribedMemberId) {
+      return;
+    }
+    final oldChannel = _loanUpdatesChannel;
+    if (oldChannel != null) {
+      unawaited(Supabase.instance.client.removeChannel(oldChannel));
+    }
+    _subscribedMemberId = memberId;
+    _loanUpdatesChannel = Supabase.instance.client
+        .channel('member-loan-progress-$memberId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'loan_applications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'member_id',
+            value: memberId,
+          ),
+          callback: (_) => unawaited(_loadMyLoans(showLoading: false)),
+        )
+        .subscribe();
   }
 
   @override
@@ -707,6 +827,11 @@ class _LoansScreenState extends State<LoansScreen> {
             final details = Loan.fromDatabase(loan);
             final rawStatus = details.status;
             final status = _loanStatusLabel(rawStatus);
+            final displayStatus = _applicationProgressLabel(
+              loan['_workflow_stage']?.toString(),
+              loan['_review_stage']?.toString(),
+              status,
+            );
             final amount = _asDouble(loan['amount']);
             final monthly = _asDouble(loan['monthly_payment']);
             final tenure = _asInt(loan['tenure_months']);
@@ -720,10 +845,12 @@ class _LoansScreenState extends State<LoansScreen> {
               key: ValueKey(details.id),
               padding: EdgeInsets.only(bottom: Responsive.spacing(context, 16)),
               child: _buildLoanHistoryCard(
+                loan,
                 loan['loan_type'] ?? 'Unknown',
                 loan['application_id'] ?? 'N/A',
                 loan['date_submitted'] ?? 'N/A',
                 status,
+                displayStatus,
                 statusColor,
                 amount,
                 hasSchedule ? details.outstandingBalance : null,
@@ -757,6 +884,23 @@ class _LoansScreenState extends State<LoansScreen> {
     _ => status,
   };
 
+  String _applicationProgressLabel(
+    String? workflowStage,
+    String? reviewStage,
+    String fallback,
+  ) => switch (workflowStage?.toLowerCase()) {
+    'not_started' || 'needs_verification' => 'Initial Review',
+    'ready_for_committee' || 'crecom_review' => 'CRECOM Review',
+    'ready_for_bod' || 'bod_review' => 'BOD Review',
+    'ready_for_final' => 'Final Review',
+    'review_attention' =>
+      reviewStage?.toUpperCase() == 'BOD' ? 'BOD Review' : 'CRECOM Review',
+    'final_approved' => 'Approved',
+    'final_rejected' => 'Rejected',
+    'returned_for_requirements' => 'Returned',
+    _ => fallback,
+  };
+
   Color _getStatusColor(String? status) {
     switch (status) {
       case 'approved':
@@ -776,43 +920,119 @@ class _LoansScreenState extends State<LoansScreen> {
     }
   }
 
-  void _showApplicationStatus({
+  Future<void> _showApplicationStatus({
+    required Map<String, dynamic> application,
     required String loanName,
     required String loanId,
     required String appliedDate,
-    required String status,
   }) {
-    showDialog<void>(
+    final liveProgress = ValueNotifier<Map<String, dynamic>>({
+      ...application,
+      '_workflow_sync_error': _progressLoadError,
+    });
+    _openApplicationProgress = liveProgress;
+    _activeProgressApplicationId = loanId;
+    return showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        scrollable: true,
-        title: const Text('Application Status'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(loanName, style: AppTheme.bodyBold),
-            const SizedBox(height: AppTheme.spacingS),
-            Text('Application ID: $loanId'),
-            Text('Date submitted: $appliedDate'),
-            Text('Status: $status'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
+      builder: (dialogContext) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 430,
+            maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.82,
           ),
-        ],
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.stacked_line_chart,
+                      color: AppTheme.primaryGreen,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Application Progress',
+                        style: AppTheme.titleBold,
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const Text(
+                  'You can track the status of your loan application below.',
+                  style: AppTheme.captionRegular,
+                ),
+                const SizedBox(height: 12),
+                Text('$loanName  ·  $loanId', style: AppTheme.bodyBold),
+                Text('Submitted $appliedDate', style: AppTheme.captionRegular),
+                const SizedBox(height: 18),
+                ValueListenableBuilder<Map<String, dynamic>>(
+                  valueListenable: liveProgress,
+                  builder: (context, currentProgress, _) => Column(
+                    children: [
+                      if (currentProgress['_workflow_sync_error'] is String)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Text(
+                            currentProgress['_workflow_sync_error'] as String,
+                            style: const TextStyle(
+                              color: AppTheme.accentGold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      _ApplicationProgressTimeline(
+                        status: _loanStatusLabel(
+                          LoanEligibility.statusFor(currentProgress),
+                        ),
+                        workflowStage: currentProgress['_workflow_stage']
+                            ?.toString(),
+                        reviewStage: currentProgress['_review_stage']
+                            ?.toString(),
+                        crecomApproved: _asInt(
+                          currentProgress['_crecom_approved'],
+                        ),
+                        crecomAssigned: _asInt(
+                          currentProgress['_crecom_assigned'],
+                        ),
+                        bodApproved: _asInt(currentProgress['_bod_approved']),
+                        bodAssigned: _asInt(currentProgress['_bod_assigned']),
+                        appliedDate: appliedDate,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
-    );
+    ).whenComplete(() {
+      if (identical(_openApplicationProgress, liveProgress)) {
+        _openApplicationProgress = null;
+        _activeProgressApplicationId = null;
+      }
+      liveProgress.dispose();
+    });
   }
 
   Widget _buildLoanHistoryCard(
+    Map<String, dynamic> application,
     String loanName,
     String loanId,
     String appliedDate,
     String status,
+    String displayStatus,
     Color statusColor,
     double? principal,
     double? outstanding,
@@ -822,14 +1042,19 @@ class _LoansScreenState extends State<LoansScreen> {
     int? totalMonths,
   ) {
     final awaitingDecision = status == 'Pending' || status == 'Under Review';
+    final trackApplicationProgress =
+        awaitingDecision ||
+        status == 'Returned' ||
+        status == 'Approved' ||
+        status == 'Rejected';
     return GestureDetector(
       onTap: () {
-        if (awaitingDecision) {
+        if (trackApplicationProgress) {
           _showApplicationStatus(
+            application: application,
             loanName: loanName,
             loanId: loanId,
             appliedDate: appliedDate,
-            status: status,
           );
           return;
         }
@@ -898,7 +1123,7 @@ class _LoansScreenState extends State<LoansScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          status,
+                          displayStatus,
                           style: TextStyle(
                             color: statusColor,
                             fontSize: Responsive.captionSize(context),
@@ -1486,4 +1711,263 @@ class _LoansScreenState extends State<LoansScreen> {
       ),
     );
   }
+}
+
+class _ApplicationProgressTimeline extends StatelessWidget {
+  const _ApplicationProgressTimeline({
+    required this.status,
+    required this.workflowStage,
+    required this.reviewStage,
+    required this.crecomApproved,
+    required this.crecomAssigned,
+    required this.bodApproved,
+    required this.bodAssigned,
+    required this.appliedDate,
+  });
+
+  final String status;
+  final String? workflowStage;
+  final String? reviewStage;
+  final int? crecomApproved;
+  final int? crecomAssigned;
+  final int? bodApproved;
+  final int? bodAssigned;
+  final String appliedDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = status.toLowerCase();
+    final stage = workflowStage?.toLowerCase();
+    final rejected = normalized == 'rejected' || stage == 'final_rejected';
+    final finalRejected = stage == 'final_rejected';
+    final returned =
+        normalized == 'returned' || stage == 'returned_for_requirements';
+    final completed = const {
+      'released',
+      'completed',
+      'overdue',
+    }.contains(normalized);
+    final currentIndex = switch (stage) {
+      'ready_for_committee' || 'crecom_review' => 2,
+      'ready_for_bod' || 'bod_review' => 3,
+      'ready_for_final' => 4,
+      'final_approved' => 5,
+      'final_rejected' => 4,
+      'review_attention' => reviewStage?.toUpperCase() == 'BOD' ? 3 : 2,
+      _ => switch (normalized) {
+        'returned' => 1,
+        'under review' => 2,
+        'approved' => 5,
+        'released' || 'completed' || 'overdue' => 6,
+        _ => 1,
+      },
+    };
+    final stages = [
+      _ApplicationProgressStage(
+        title: 'Application Submitted',
+        description: 'Submitted on $appliedDate.',
+        icon: Icons.check,
+      ),
+      _ApplicationProgressStage(
+        title: rejected && !finalRejected
+            ? 'Application Rejected'
+            : returned
+            ? 'Returned for Correction'
+            : 'Initial Requirements Review',
+        description: rejected && !finalRejected
+            ? 'The cooperative did not approve this application.'
+            : returned
+            ? 'Corrections are required before the application can continue.'
+            : 'The cooperative checks your application documents and requirements.',
+        icon: rejected
+            ? (finalRejected
+                  ? Icons.assignment_turned_in_outlined
+                  : Icons.close)
+            : returned
+            ? Icons.assignment_return_outlined
+            : Icons.access_time,
+      ),
+      _ApplicationProgressStage(
+        title: 'CRECOM Review',
+        description:
+            'CRECOM approval progress: ${crecomApproved ?? 0} of ${crecomAssigned ?? 3} recorded.',
+        icon: Icons.groups_2_outlined,
+      ),
+      _ApplicationProgressStage(
+        title: 'BOD Review',
+        description: switch (stage) {
+          'ready_for_bod' || 'bod_review' =>
+            'BOD approval progress: ${bodApproved ?? 0} of ${bodAssigned ?? 1} recorded.',
+          _ => 'The Board of Directors reviews the application after CRECOM.',
+        },
+        icon: Icons.gavel_outlined,
+      ),
+      _ApplicationProgressStage(
+        title: finalRejected ? 'Final Decision · Rejected' : 'Final Review',
+        description: finalRejected
+            ? 'The application was rejected after cooperative review.'
+            : stage == 'ready_for_final'
+            ? 'CRECOM: ${crecomApproved ?? 0} of ${crecomAssigned ?? 3} approved. BOD: ${bodApproved ?? 0} of ${bodAssigned ?? 1} approved. The application is awaiting the final decision.'
+            : 'The cooperative records its final decision after committee review.',
+        icon: finalRejected ? Icons.close : Icons.fact_check_outlined,
+      ),
+      _ApplicationProgressStage(
+        title: 'Loan Release',
+        description: completed
+            ? 'Your approved loan has been released.'
+            : normalized == 'approved' || stage == 'final_approved'
+            ? 'Your loan is approved and being prepared for release.'
+            : 'The loan is released after final approval.',
+        icon: Icons.account_balance_outlined,
+      ),
+    ];
+
+    return Column(
+      children: List.generate(stages.length, (index) {
+        final stage = stages[index];
+        final isRejected = rejected && index == (finalRejected ? 4 : 1);
+        final isComplete = index < currentIndex || (completed && index == 5);
+        final isCurrent = !completed && !rejected && index == currentIndex;
+        final state = isRejected
+            ? 'Rejected'
+            : isComplete
+            ? 'Completed'
+            : isCurrent
+            ? 'Current'
+            : 'Upcoming';
+        final accent = isRejected
+            ? AppTheme.danger
+            : (isComplete || isCurrent)
+            ? AppTheme.primaryGreen
+            : const Color(0xFFB8C0BC);
+        final cardColor = isCurrent
+            ? const Color(0xFFEAF4E9)
+            : AppTheme.cardWhite;
+
+        return Column(
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: isComplete ? AppTheme.primaryGreen : cardColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: accent,
+                        width: isCurrent ? 2 : 1.5,
+                      ),
+                    ),
+                    child: Icon(
+                      isComplete ? Icons.check : stage.icon,
+                      size: 13,
+                      color: isComplete ? Colors.white : accent,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                stage.title,
+                                style: const TextStyle(
+                                  color: Color(0xFF183A24),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            _ProgressStateBadge(label: state, color: accent),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          stage.description,
+                          style: const TextStyle(
+                            color: Color(0xFF637169),
+                            fontSize: 11,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (index < stages.length - 1)
+              Row(
+                children: [
+                  SizedBox(
+                    width: 22,
+                    child: Center(
+                      child: Container(
+                        width: 2,
+                        height: 12,
+                        color: index < currentIndex
+                            ? AppTheme.primaryGreen.withOpacity(0.55)
+                            : const Color(0xFFD5DAD7),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(child: SizedBox.shrink()),
+                ],
+              ),
+          ],
+        );
+      }),
+    );
+  }
+}
+
+class _ApplicationProgressStage {
+  const _ApplicationProgressStage({
+    required this.title,
+    required this.description,
+    required this.icon,
+  });
+
+  final String title;
+  final String description;
+  final IconData icon;
+}
+
+class _ProgressStateBadge extends StatelessWidget {
+  const _ProgressStateBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(9),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.w700),
+    ),
+  );
 }
