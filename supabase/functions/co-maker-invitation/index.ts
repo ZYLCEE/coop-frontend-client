@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import nodemailer from 'npm:nodemailer@^9'
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -68,30 +69,40 @@ async function sendNotificationEmail(
   title: string,
   message: string,
   idempotencyKey: string,
+  applicationId: string,
 ): Promise<boolean> {
-  const apiKey = Deno.env.get('RESEND_API_KEY')
-  const sender = Deno.env.get('COOP_EMAIL_FROM')
-  if (!apiKey || !sender || !email) return false
+  const host = Deno.env.get('SMTP_HOST') ?? 'smtp.gmail.com'
+  const port = Number(Deno.env.get('SMTP_PORT') ?? '465')
+  const secure = (Deno.env.get('SMTP_SECURE') ?? 'true').toLowerCase() === 'true'
+  const username = Deno.env.get('SMTP_USERNAME')
+  const password = Deno.env.get('SMTP_PASSWORD')
+  const sender = Deno.env.get('SMTP_FROM') ?? username
+  if (!username || !password || !sender || !email || !Number.isInteger(port) || port < 1 || port > 65535) return false
+
+  const transport = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: { user: username, pass: password },
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+  })
 
   try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Idempotency-Key': idempotencyKey,
-      },
-      body: JSON.stringify({
-        from: sender,
-        to: [email],
-        subject: title,
-        text: `${message}\n\nOpen CSUCC ERMPC and go to Notifications to review or respond. Email delivery does not accept or decline the invitation.`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#183a24"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(message).replace(/\n/g, '<br>')}</p><p>Open CSUCC ERMPC and go to Notifications to review or respond. Email delivery does not accept or decline the invitation.</p></div>`,
-      }),
+    const result = await transport.sendMail({
+      from: sender,
+      to: email,
+      subject: `CSUCC ERMPC | ${title} | ${applicationId}`,
+      text: `${message}\n\nApplication Number: ${applicationId}\n\nWhat you need to do:\nOpen CSUCC ERMPC and go to Notifications to review or respond. Email delivery does not accept or decline the invitation.\n\nCSUCC ERMPC\nThis is an automated application update.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#183a24"><h2>${escapeHtml(title)}</h2><p style="white-space:pre-wrap">${escapeHtml(message)}</p><p><strong>Application Number:</strong> ${escapeHtml(applicationId)}</p><h3 style="font-size:16px">What you need to do</h3><p>Open CSUCC ERMPC and go to Notifications to review or respond. Email delivery does not accept or decline the invitation.</p><p>CSUCC ERMPC</p><p style="font-size:12px;color:#66736d">This is an automated application update.</p></div>`,
+      messageId: `<${idempotencyKey.replace(/[^a-zA-Z0-9._-]/g, '.') }@${host}>`,
     })
-    return response.ok
+    return result.accepted.some((recipient) => String(recipient).toLowerCase() === email.toLowerCase())
   } catch {
     return false
+  } finally {
+    transport.close()
   }
 }
 
@@ -156,7 +167,7 @@ serve(async (request) => {
       const tenure = Number(input.tenure_months)
       const amount = numeric(input.amount, 0.01)
       const details = input.loan_details
-      const validApplicationId = /^LA-\d{4}-\d{6}$/.test(applicationId)
+      const validApplicationId = /^LA-\d{4}-(?:\d{6}|\d{12})$/.test(applicationId)
       const validDocumentPath = validApplicationId && new RegExp(
         `^${actor.user.id}/${applicationId}/co_maker_id_[a-f0-9]{32}\\.(jpg|png|webp|heic|heif|pdf)$`,
         'i',
@@ -166,12 +177,20 @@ serve(async (request) => {
         'Multi-Purpose', 'Quick', 'Livelihood', 'Appliance', 'Birthday',
         'Anniversary', 'Fiesta', 'Bonus', 'Collateral', 'Mortuary', 'Subsistence', 'ASSME',
       ])
-      if (!validApplicationId || !variants || !validDocumentPath ||
-          relationship.length < 1 || relationship.length > 100 ||
-          !allowedLoanTypes.has(loanType) || amount === null ||
-          !Number.isInteger(tenure) || tenure < 1 || tenure > 360 ||
-          !details || typeof details !== 'object' || Array.isArray(details)) {
-        return respond({ error: 'Complete the loan and co-maker details before inviting.' }, 400)
+      const invalidFields = [
+        !validApplicationId && 'application reference',
+        !variants && 'co-maker member ID',
+        !validDocumentPath && 'co-maker ID document',
+        (relationship.length < 1 || relationship.length > 100) && 'relationship',
+        !allowedLoanTypes.has(loanType) && 'loan type',
+        amount === null && 'loan amount',
+        (!Number.isInteger(tenure) || tenure < 1 || tenure > 360) && 'loan term',
+        (!details || typeof details !== 'object' || Array.isArray(details)) && 'loan details',
+      ].filter((field): field is string => field !== false)
+      if (invalidFields.length > 0) {
+        return respond({
+          error: `Check these details before inviting: ${invalidFields.join(', ')}.`,
+        }, 400)
       }
 
       const { data: existing, error: existingError } = await admin
@@ -261,6 +280,7 @@ serve(async (request) => {
       const loanLabel = `${loanType} Loan`
       const amountLabel = `PHP ${amount.toFixed(2)}`
       const detailsText = [
+        `Application Number: ${applicationId}`,
         `Borrower: ${borrowerName}`,
         `Loan: ${loanLabel}`,
         `Requested amount: ${amountLabel}`,
@@ -296,6 +316,7 @@ serve(async (request) => {
         notificationTitle,
         detailsText,
         `co-maker-invitation/${requestId}`,
+        applicationId,
       )
       return respond({ request_id: requestId, status: created.status, email_sent: emailSent })
     }
@@ -336,8 +357,13 @@ serve(async (request) => {
         `${invite.co_maker_name} declined the co-maker invitation.`,
         `Your ${invite.loan_type} Loan invitation for ${invite.borrower_name} was declined. You can choose another co-maker.`,
         `co-maker-response/${requestId}/rejected`,
+        invite.application_id,
       )
-      return respond({ status: 'rejected', email_sent: emailSent })
+      return respond({
+        status: 'rejected',
+        notification_sent: !notifyError,
+        email_sent: emailSent,
+      })
     }
 
     if (action === 'begin_accept') {
@@ -396,8 +422,13 @@ serve(async (request) => {
         responseTitle,
         responseMessage,
         `co-maker-response/${requestId}/accepted`,
+        invite.application_id,
       )
-      return respond({ status: 'accepted', email_sent: emailSent })
+      return respond({
+        status: 'accepted',
+        notification_sent: !notifyError,
+        email_sent: emailSent,
+      })
     }
 
     return respond({ error: 'Unsupported action.' }, 400)

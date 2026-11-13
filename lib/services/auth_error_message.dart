@@ -1,9 +1,23 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 String getAuthErrorMessage(Object error) {
-  if (error is StateError) return error.message;
-  final message = error is AuthException ? error.message : error.toString();
+  final message = error is StateError
+      ? error.message
+      : error is AuthException
+      ? error.message
+      : error.toString();
   final normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.contains('user_banned') ||
+      normalizedMessage.contains('banned') ||
+      normalizedMessage.contains('blocked') ||
+      normalizedMessage.contains('suspended') ||
+      normalizedMessage.contains('inactive member') ||
+      normalizedMessage.contains('member account is inactive')) {
+    return 'Your account has been blocked by the administrators. Please contact the cooperative administrators for assistance.';
+  }
+
+  if (error is StateError) return error.message;
 
   if (normalizedMessage.contains('invalid api key') ||
       normalizedMessage.contains('invalid api_key')) {

@@ -21,16 +21,11 @@ const unavailable = () =>
 const notFound = () =>
   respond({ error: 'Member not found or unavailable.' }, 404)
 
-function normalizeMemberId(value: unknown): string[] | null {
+function normalizeMemberName(value: unknown): { firstName: string; lastName: string } | null {
   if (typeof value !== 'string') return null
-
-  const normalized = value.trim().toUpperCase()
-  if (normalized.length === 0 || normalized.length > 20) return null
-
-  const bareId = normalized.replace(/^CSUCC-/, '')
-  if (!/^\d{4}-\d{4,}$/.test(bareId)) return null
-
-  return [...new Set([normalized, bareId, `CSUCC-${bareId}`])]
+  const parts = value.trim().replace(/\s+/g, ' ').split(' ')
+  if (parts.length < 2 || value.trim().length > 200) return null
+  return { firstName: parts[0], lastName: parts.slice(1).join(' ') }
 }
 
 function isActiveMemberUser(user: {
@@ -66,8 +61,8 @@ serve(async (request) => {
     return respond({ error: 'Invalid request.' }, 400)
   }
 
-  const memberIdVariants = normalizeMemberId((body as JsonObject).member_id)
-  if (!memberIdVariants) return respond({ error: 'Enter a valid Member ID.' }, 400)
+  const memberName = normalizeMemberName((body as JsonObject).name)
+  if (!memberName) return respond({ error: 'Enter the member’s first and last name.' }, 400)
 
   const admin = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -95,7 +90,7 @@ serve(async (request) => {
     }
     const borrower = borrowerRows[0]
 
-    // Ten exact-ID lookups per authenticated member per 15-minute window.
+    // Ten exact-name lookups per authenticated member per 15-minute window.
     // This limits directory enumeration; it is not an eligibility decision.
     const { data: lookupAllowed, error: limitError } = await admin.rpc(
       'reserve_co_maker_lookup_attempt',
@@ -109,7 +104,8 @@ serve(async (request) => {
     const { data: candidates, error: candidateError } = await admin
       .from('members')
       .select('id, user_id, member_id, first_name, last_name, status')
-      .in('member_id', memberIdVariants)
+      .ilike('first_name', memberName.firstName)
+      .ilike('last_name', memberName.lastName)
       .limit(2)
 
     if (candidateError) return unavailable()

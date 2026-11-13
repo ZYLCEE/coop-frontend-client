@@ -27,17 +27,15 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
   bool _acceptedTerms = false;
   bool _certifiedInformation = false;
 
-  final _witnessOne = TextEditingController();
-  final _witnessTwo = TextEditingController();
-
   LoanConsentSubmission get _consent => LoanConsentSubmission(
     termsAccepted: _acceptedTerms,
     informationCertified: _certifiedInformation,
-    witnessNames: [_witnessOne.text, _witnessTwo.text],
+    witnessNames: [widget.snapshot.witnessOne, widget.snapshot.witnessTwo],
   );
 
   bool get _isValidated {
-    if (_witnessOne.text.trim().isEmpty || _witnessTwo.text.trim().isEmpty) {
+    final witnesses = _consent.normalizedWitnessNames;
+    if (witnesses.length != 2) {
       return false;
     }
     try {
@@ -46,13 +44,6 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
     } on StateError {
       return false;
     }
-  }
-
-  @override
-  void dispose() {
-    _witnessOne.dispose();
-    _witnessTwo.dispose();
-    super.dispose();
   }
 
   @override
@@ -124,36 +115,16 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
               ),
               const SizedBox(height: AppTheme.spacingS),
               const Text(
-                'Enter the full names of two different witnesses. These names will be saved with your agreement.',
+                'The witness names from Participants will be saved with your agreement.',
               ),
               const SizedBox(height: AppTheme.spacingM),
-              TextField(
-                key: const Key('loan-witness-one'),
-                controller: _witnessOne,
-                textCapitalization: TextCapitalization.words,
-                maxLength: 160,
-                decoration: const InputDecoration(
-                  labelText: 'Witness 1 full name',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: AppTheme.spacingM),
-              TextField(
-                key: const Key('loan-witness-two'),
-                controller: _witnessTwo,
-                textCapitalization: TextCapitalization.words,
-                maxLength: 160,
-                decoration: const InputDecoration(
-                  labelText: 'Witness 2 full name',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-              if (_witnessOne.text.trim().isNotEmpty &&
-                  _witnessTwo.text.trim().isNotEmpty &&
-                  _witnessOne.text.trim().toLowerCase() ==
-                      _witnessTwo.text.trim().toLowerCase())
+              Text('Witness 1: ${widget.snapshot.witnessOne}'),
+              const SizedBox(height: AppTheme.spacingS),
+              Text('Witness 2: ${widget.snapshot.witnessTwo}'),
+              if (widget.snapshot.witnessOne.trim().isNotEmpty &&
+                  widget.snapshot.witnessTwo.trim().isNotEmpty &&
+                  widget.snapshot.witnessOne.trim().toLowerCase() ==
+                      widget.snapshot.witnessTwo.trim().toLowerCase())
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text(

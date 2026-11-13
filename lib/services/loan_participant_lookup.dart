@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/loan_participant.dart';
 
 abstract interface class LoanParticipantLookup {
-  Future<LoanCoMakerCandidate?> findByMemberId(String normalizedId);
+  Future<LoanCoMakerCandidate?> findByName(String name);
 }
 
 /// Local fixtures. A match identifies a demo record, not a real member.
@@ -12,24 +12,24 @@ class DemoLoanParticipantLookup implements LoanParticipantLookup {
 
   static const exampleMemberId = 'CSUCC-2099-9001';
   static const _candidates = {
-    '2099-9001': LoanCoMakerCandidate(
+    'demo member one': LoanCoMakerCandidate(
       memberId: exampleMemberId,
       name: 'Demo Member One',
       isDemo: true,
     ),
-    '2099-9002': LoanCoMakerCandidate(
+    'demo member two': LoanCoMakerCandidate(
       memberId: 'CSUCC-2099-9002',
       name: 'Demo Member Two',
       isDemo: true,
     ),
   };
 
-  static LoanCoMakerCandidate? fictionalMember(String memberId) =>
-      _candidates[normalizeParticipantMemberId(memberId)];
+  static LoanCoMakerCandidate? fictionalMember(String name) =>
+      _candidates[name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ')];
 
   @override
-  Future<LoanCoMakerCandidate?> findByMemberId(String normalizedId) async =>
-      fictionalMember(normalizedId);
+  Future<LoanCoMakerCandidate?> findByName(String name) async =>
+      fictionalMember(name);
 }
 
 /// Calls the authenticated lookup function only on the designated staging
@@ -46,7 +46,7 @@ class SupabaseLoanParticipantLookup implements LoanParticipantLookup {
   final String allowedProjectRef;
 
   @override
-  Future<LoanCoMakerCandidate?> findByMemberId(String normalizedId) async {
+  Future<LoanCoMakerCandidate?> findByName(String name) async {
     final projectRef = Uri.tryParse(supabaseUrl)?.host.split('.').first;
     if (projectRef != allowedProjectRef) {
       throw const LoanParticipantLookupException(
@@ -63,7 +63,7 @@ class SupabaseLoanParticipantLookup implements LoanParticipantLookup {
     try {
       response = await _client.functions.invoke(
         'co-maker-lookup',
-        body: {'member_id': normalizedId},
+        body: {'name': name.trim()},
       );
     } on FunctionException catch (exception) {
       final details = exception.details;
@@ -73,7 +73,7 @@ class SupabaseLoanParticipantLookup implements LoanParticipantLookup {
       }
       if (exception.status == 404) {
         throw const LoanParticipantLookupException(
-          'No active member was found for that Member ID.',
+            'No active member was found for that name.',
         );
       }
       throw const LoanParticipantLookupException(
@@ -98,8 +98,8 @@ class SupabaseLoanParticipantLookup implements LoanParticipantLookup {
 
     final candidateData = Map<String, dynamic>.from(candidate);
     final memberId = candidateData['memberId'];
-    final name = candidateData['name'];
-    if (memberId is! String || name is! String) {
+    final candidateName = candidateData['name'];
+    if (memberId is! String || candidateName is! String) {
       throw const LoanParticipantLookupException(
         'The staging lookup returned incomplete member information.',
       );
@@ -107,7 +107,7 @@ class SupabaseLoanParticipantLookup implements LoanParticipantLookup {
 
     return LoanCoMakerCandidate(
       memberId: memberId,
-      name: name,
+      name: candidateName,
       isVerifiedMember: true,
       eligibilityStatus: 'pending_policy',
     );

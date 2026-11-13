@@ -526,7 +526,7 @@ class OtpInputFields extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         const fieldCount = 8;
-        const fieldPadding = 4.0;
+        const fieldPadding = 2.0;
         final fieldWidth =
             ((constraints.maxWidth - fieldCount * fieldPadding * 2) /
                     fieldCount)
@@ -548,9 +548,10 @@ class OtpInputFields extends StatelessWidget {
                   enableSuggestions: false,
                   enableInteractiveSelection: false,
                   textAlign: TextAlign.center,
+                  textAlignVertical: TextAlignVertical.center,
                   style: const TextStyle(
                     color: Color(0xFF183A24),
-                    fontSize: 20,
+                    fontSize: 18,
                     fontWeight: FontWeight.w600,
                   ),
                   inputFormatters: [
@@ -560,7 +561,7 @@ class OtpInputFields extends StatelessWidget {
                   decoration: InputDecoration(
                     filled: true,
                     fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                    contentPadding: EdgeInsets.zero,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: const BorderSide(color: Color(0xFFE6E6E6)),

@@ -161,25 +161,28 @@ final response = await supabase.functions.invoke('loan-approval', body: {
 
 The co-maker invitation Edge Function creates one detailed in-app notification
 and sends an email copy for invitation, acceptance, and decline events. Email
-delivery uses the Resend API from the Edge Function; the Resend key must never
-be added to Flutter or committed to this repository. The recipient must have a
+delivery uses Gmail SMTP. Keep the Gmail app password in the Edge Function's
+server-side environment; never put it in Flutter's root `.env` or commit it.
+That root file is bundled as a Flutter asset. The recipient must have a
 registered email on their Supabase Auth account. Email is informational: the
 co-maker must sign in to CSUCC ERMPC and accept or decline in the app, where
 acceptance still requires email OTP verification.
 
-Before deploying to a staging project, verify a sending domain with Resend and
-set these Edge Function secrets on that project:
+For local Edge Function development, copy
+`supabase/functions/.env.example` to `supabase/functions/.env` and fill in the
+Gmail account and app password. Serve the function with that file:
 
 ```sh
-supabase secrets set RESEND_API_KEY=re_your_key COOP_EMAIL_FROM="CSUCC ERMPC <no-reply@your-verified-domain>" --project-ref YOUR_STAGING_PROJECT_REF
+supabase functions serve co-maker-invitation --env-file supabase/functions/.env
 ```
 
-Then deploy the function to staging and test with two staging member accounts:
-
-```sh
-supabase functions deploy co-maker-invitation --project-ref YOUR_STAGING_PROJECT_REF
-```
+For the hosted Supabase project, add `SMTP_USERNAME`, `SMTP_PASSWORD`, and
+`SMTP_FROM` under **Project Settings → Edge Function Secrets**. Use the Gmail
+account address as both username and sender, and create a Google app password
+for that account with 2-Step Verification enabled. The function defaults to
+`smtp.gmail.com`, port `465`, and implicit TLS. The Edge Function must be
+deployed to the target project before the hosted app can use this version.
 
 The function reports `email_sent` in its response. The app keeps the in-app
-notification available if the email provider is not configured or delivery
-fails, and displays that state to the borrower.
+notification available if SMTP is not configured or delivery fails, and
+displays that state to the borrower.

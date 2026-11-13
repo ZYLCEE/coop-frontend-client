@@ -67,6 +67,23 @@ class SupabaseService {
         'Unable to start your member session. Please sign in again.',
       );
     }
+    final member = await client
+        .from('members')
+        .select('status')
+        .eq('user_id', response.user!.id)
+        .maybeSingle();
+    if (member == null) {
+      await client.auth.signOut(scope: SignOutScope.local);
+      throw StateError(
+        'Your member account could not be verified. Please contact the cooperative administrators.',
+      );
+    }
+    if (member['status']?.toString().toLowerCase() != 'active') {
+      await client.auth.signOut(scope: SignOutScope.local);
+      throw StateError(
+        'Your account has been blocked by the administrators. Please contact the cooperative administrators for assistance.',
+      );
+    }
     final mustChangePassword = data['mustChangePassword'] as bool;
     await QuickAccessController.instance.activateAfterPasswordLogin(
       mustChangePassword: mustChangePassword,
@@ -94,8 +111,13 @@ class SupabaseService {
           .select('status, must_change_password')
           .eq('user_id', user.id)
           .maybeSingle();
-      if (member?['status'] != 'active') {
+      if (member == null) {
         throw StateError('Sign in with an active member account.');
+      }
+      if (member['status']?.toString().toLowerCase() != 'active') {
+        throw StateError(
+          'Your account has been blocked by the administrators. Please contact the cooperative administrators for assistance.',
+        );
       }
       final mustChangePassword = member?['must_change_password'] == true;
       await QuickAccessController.instance.activateAfterPasswordLogin(
@@ -126,26 +148,6 @@ class SupabaseService {
       );
     }
     await client.auth.setSession(refreshToken);
-    await QuickAccessController.instance.activateAfterPasswordLogin(
-      mustChangePassword: false,
-    );
-  }
-
-  Future<void> signIn({required String email, required String password}) async {
-    final response = await client.auth.signInWithPassword(
-      email: email,
-      password: password,
-    );
-    final user = response.user;
-    if (user == null || response.session == null) {
-      throw Exception('Sign in failed');
-    }
-    if (user.appMetadata['role'] != 'coop_admin') {
-      await client.auth.signOut(scope: SignOutScope.local);
-      throw StateError(
-        'This account is not configured for cooperative administrator access.',
-      );
-    }
     await QuickAccessController.instance.activateAfterPasswordLogin(
       mustChangePassword: false,
     );

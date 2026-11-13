@@ -4,6 +4,7 @@ import 'package:coop_frontend/loan_application_flow.dart';
 import 'package:coop_frontend/loan_calculator_service.dart';
 import 'package:coop_frontend/models/loan_agreement_snapshot.dart';
 import 'package:coop_frontend/models/loan_application_draft.dart';
+import 'package:coop_frontend/models/loan_participant.dart';
 import 'package:coop_frontend/models/loan_policy.dart';
 import 'package:coop_frontend/review_terms_screen.dart';
 import 'package:flutter/material.dart';
@@ -85,7 +86,10 @@ void main() {
         loanProcessingTime: '3-5',
       );
       final draft = LoanApplicationDraft(loanType: LoanType.regular)
-        ..policy = policy;
+        ..policy = policy
+        ..participants = (LoanParticipantsDraft()
+          ..witnessOne = 'Witness One'
+          ..witnessTwo = 'Witness Two');
       draft.computation = LoanCalculatorService().calculate(
         principal: draft.amount,
         months: draft.tenure,
@@ -107,28 +111,17 @@ void main() {
       ElevatedButton button() =>
           tester.widget<ElevatedButton>(find.byType(ElevatedButton));
       expect(button().onPressed, isNull);
+      expect(find.text('Witness 1: Witness One'), findsOneWidget);
+      expect(find.text('Witness 2: Witness Two'), findsOneWidget);
+      expect(find.byKey(const Key('loan-witness-one')), findsNothing);
+      expect(find.byKey(const Key('loan-witness-two')), findsNothing);
       for (var index = 0; index < 2; index++) {
         final finder = find.byType(Checkbox).at(index);
         await tester.ensureVisible(finder);
         await tester.tap(finder);
         await tester.pump();
       }
-      expect(button().onPressed, isNull);
-      final first = find.byKey(const Key('loan-witness-one'));
-      final second = find.byKey(const Key('loan-witness-two'));
-      await tester.ensureVisible(first);
-      await tester.enterText(first, 'Witness One');
-      await tester.ensureVisible(second);
-      await tester.enterText(second, ' witness one ');
-      await tester.pump();
-      expect(button().onPressed, isNull);
-      expect(find.text('Enter two different witnesses.'), findsOneWidget);
-      await tester.enterText(second, 'Witness Two');
-      await tester.pump();
       expect(button().onPressed, isNotNull);
-      await tester.enterText(first, '   ');
-      await tester.pump();
-      expect(button().onPressed, isNull);
     },
   );
 }

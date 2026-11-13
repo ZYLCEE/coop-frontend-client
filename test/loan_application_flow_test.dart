@@ -423,7 +423,7 @@ void main() {
       ..applicant = member
       ..profileConfirmed = true
       ..participants = (LoanParticipantsDraft()
-        ..memberIdInput = '2099-9002'
+        ..coMakerNameInput = 'Demo Member Two'
         ..coMaker = const LoanCoMakerCandidate(
           memberId: '2099-9002',
           name: 'Demo Member Two',
@@ -576,19 +576,19 @@ void main() {
 
       await tapText(tester, 'Continue to Documents');
       expect(find.text('Look up and select a demo co-maker.'), findsOneWidget);
-      await enterParticipantField(tester, 'Co-maker Member ID', 'invalid');
+      await enterParticipantField(tester, 'Co-Maker Member Name', 'invalid');
       await tapText(tester, 'Look Up Demo Member');
-      expect(find.textContaining('Enter a Member ID'), findsOneWidget);
-      await enterParticipantField(tester, 'Co-maker Member ID', '2099-9003');
+      expect(find.textContaining('first and last name'), findsOneWidget);
+      await enterParticipantField(tester, 'Co-Maker Member Name', 'Demo Member Three');
       await tapText(tester, 'Look Up Demo Member');
       expect(
         find.text('Choose a co-maker other than yourself.'),
         findsOneWidget,
       );
-      await enterParticipantField(tester, 'Co-maker Member ID', '2099-9999');
+      await enterParticipantField(tester, 'Co-Maker Member Name', 'Unknown Member');
       await tapText(tester, 'Look Up Demo Member');
       expect(find.textContaining('Demo member not found'), findsOneWidget);
-      await enterParticipantField(tester, 'Co-maker Member ID', '2099-9002');
+      await enterParticipantField(tester, 'Co-Maker Member Name', 'Demo Member Two');
       await tapText(tester, 'Look Up Demo Member');
       expect(find.text('Demo Member Two'), findsOneWidget);
       expect(find.textContaining('Fictional demo record'), findsOneWidget);
@@ -755,7 +755,7 @@ void main() {
       expect(participants, findsOneWidget);
       expect(draft.amount, 60000);
       expect(draft.documents, hasLength(2));
-      await enterParticipantField(tester, 'Co-maker Member ID', '2099-9001');
+      await enterParticipantField(tester, 'Co-Maker Member Name', 'Demo Member One');
       await tapText(tester, 'Look Up Demo Member');
       await selectRelationship(tester, 'Friend');
       navigator.pop();
@@ -1175,7 +1175,7 @@ void main() {
         home: LoanParticipantsScreen(flow: flow, lookup: _FailingLookup()),
       ),
     );
-    await enterParticipantField(tester, 'Co-maker Member ID', '2099-9002');
+    await enterParticipantField(tester, 'Co-Maker Member Name', 'Demo Member Two');
     await tapText(tester, 'Look Up Demo Member');
     expect(
       find.text('Demo member lookup is unavailable. Try again.'),
@@ -1758,7 +1758,7 @@ Future<void> tapText(WidgetTester tester, String label) async {
 
 class _FailingLookup implements LoanParticipantLookup {
   @override
-  Future<LoanCoMakerCandidate?> findByMemberId(String normalizedId) async =>
+  Future<LoanCoMakerCandidate?> findByName(String name) async =>
       throw StateError('Unavailable');
 }
 

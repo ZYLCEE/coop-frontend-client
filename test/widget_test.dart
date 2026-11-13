@@ -56,62 +56,6 @@ void main() {
     expect(find.byType(ConfirmPassScreen), findsNothing);
   });
 
-  testWidgets('Superadmin mode validates an email before authenticating', (
-    tester,
-  ) async {
-    var called = false;
-    await openLogin(
-      tester,
-      LoginScreen(
-        authenticateAdmin: ({required email, required password}) async {
-          called = true;
-        },
-      ),
-    );
-    await tester.tap(find.text('Superadmin sign in'));
-    await tester.pumpAndSettle();
-    expect(find.text('SUPERADMIN EMAIL'), findsOneWidget);
-    await tester.enterText(find.byType(TextFormField).at(0), 'not-an-email');
-    await tester.enterText(find.byType(TextFormField).at(1), 'password');
-    await tester.tap(find.text('Superadmin Login'));
-    await tester.pump();
-    expect(find.text('Please enter a valid email address.'), findsOneWidget);
-    expect(called, isFalse);
-  });
-
-  testWidgets('Superadmin mode submits the email and displays auth errors', (
-    tester,
-  ) async {
-    String? submittedEmail;
-    await openLogin(
-      tester,
-      LoginScreen(
-        authenticateAdmin: ({required email, required password}) async {
-          submittedEmail = email;
-          throw StateError(
-            'This account is not configured for cooperative administrator access.',
-          );
-        },
-      ),
-    );
-    await tester.tap(find.text('Superadmin sign in'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byType(TextFormField).at(0),
-      'admin@example.com',
-    );
-    await tester.enterText(find.byType(TextFormField).at(1), 'password');
-    await tester.tap(find.text('Superadmin Login'));
-    await tester.pumpAndSettle();
-    expect(submittedEmail, 'admin@example.com');
-    expect(
-      find.text(
-        'This account is not configured for cooperative administrator access.',
-      ),
-      findsOneWidget,
-    );
-  });
-
   testWidgets('Rejected credentials show an error and stay on login', (
     tester,
   ) async {

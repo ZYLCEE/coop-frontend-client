@@ -1,9 +1,6 @@
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- Members table
 CREATE TABLE IF NOT EXISTS public.members (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   member_id VARCHAR(20) UNIQUE NOT NULL,
   first_name VARCHAR(100) NOT NULL,
@@ -23,7 +20,7 @@ CREATE INDEX idx_members_user_id ON public.members(user_id);
 
 -- Loan applications table
 CREATE TABLE IF NOT EXISTS public.loan_applications (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   application_id VARCHAR(20) UNIQUE NOT NULL,
   member_id UUID NOT NULL REFERENCES public.members(id) ON DELETE CASCADE,
   member_name VARCHAR(200) NOT NULL,
@@ -49,7 +46,7 @@ CREATE INDEX idx_loan_applications_date_submitted ON public.loan_applications(da
 
 -- Loan payments table
 CREATE TABLE IF NOT EXISTS public.loan_payments (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   loan_application_id UUID NOT NULL REFERENCES public.loan_applications(id) ON DELETE CASCADE,
   payment_amount DECIMAL(15, 2) NOT NULL,
   payment_date DATE NOT NULL,
@@ -64,7 +61,7 @@ CREATE INDEX idx_loan_payments_payment_date ON public.loan_payments(payment_date
 
 -- Savings accounts table
 CREATE TABLE IF NOT EXISTS public.savings_accounts (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   member_id UUID NOT NULL REFERENCES public.members(id) ON DELETE CASCADE,
   account_number VARCHAR(20) UNIQUE NOT NULL,
   balance DECIMAL(15, 2) DEFAULT 0.00,

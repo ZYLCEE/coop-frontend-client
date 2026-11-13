@@ -21,7 +21,7 @@ class LoanCoMakerCandidate {
 
 /// In-memory selections for the participant prototype.
 class LoanParticipantsDraft {
-  String memberIdInput = '';
+  String coMakerNameInput = '';
   LoanCoMakerCandidate? coMaker;
   String relationship = '';
   SelectedLoanDocument? coMakerIdDocument;

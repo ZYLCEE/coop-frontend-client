@@ -52,15 +52,13 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
       return;
     }
     final participants = _participants;
-    final id = normalizeParticipantMemberId(participants.memberIdInput);
+    final name = participants.coMakerNameInput.trim().replaceAll(RegExp(r'\s+'), ' ');
     final borrowerId = normalizeParticipantMemberId(
       widget.flow.draft.applicant?['member_id']?.toString() ?? '',
     );
-    if (!RegExp(r'^\d{4}-\d{4,}$').hasMatch(id) || id == borrowerId) {
+    if (name.split(' ').length < 2) {
       setState(() {
-        _lookupError = id == borrowerId && id.isNotEmpty
-            ? 'Choose a co-maker other than yourself.'
-            : 'Enter a Member ID in CSUCC-YYYY-NNNN or YYYY-NNNN format.';
+        _lookupError = 'Enter the co-maker’s first and last name.';
       });
       return;
     }
@@ -72,11 +70,11 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
     LoanCoMakerCandidate? candidate;
     String? error;
     try {
-      candidate = await _lookup.findByMemberId(id);
+      candidate = await _lookup.findByName(name);
       if (candidate == null) {
         error = !widget.flow.participantsDemo
-            ? 'No active member was found for that Member ID.'
-            : 'Demo member not found. Check the ID and try again.';
+            ? 'No active member was found with that name.'
+            : 'Demo member not found. Check the name and try again.';
       } else if (normalizeParticipantMemberId(candidate.memberId) ==
           borrowerId) {
         candidate = null;
@@ -231,14 +229,12 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                 const SizedBox(height: AppTheme.spacingL),
                 _card('Co-Maker', [
                   _field(
-                    'Co-maker Member ID',
-                    participants.memberIdInput,
+                    'Co-Maker Member Name',
+                    participants.coMakerNameInput,
                     (value) => setState(() {
-                      participants.memberIdInput = value;
+                      participants.coMakerNameInput = value;
                       final selected = participants.coMaker;
-                      if (selected != null &&
-                          normalizeParticipantMemberId(value) !=
-                              normalizeParticipantMemberId(selected.memberId)) {
+                      if (selected != null && value.trim().toLowerCase() != selected.name.trim().toLowerCase()) {
                         participants.coMaker = null;
                         participants.relationship = '';
                         participants.coMakerIdDocument = null;
@@ -250,25 +246,15 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                     enabled: !_loading,
                     error: _lookupError,
                     validator: (value) {
-                      final memberId = normalizeParticipantMemberId(
-                        value ?? '',
-                      );
-                      if (memberId.isEmpty) {
-                        return 'Enter the co-maker Member ID.';
-                      }
-                      if (!RegExp(r'^\d{4}-\d{4,}$').hasMatch(memberId)) {
-                        return 'Enter a valid Member ID in CSUCC-YYYY-NNNN or YYYY-NNNN format.';
-                      }
-                      if (memberId == borrowerId) {
-                        return 'Choose a co-maker other than yourself.';
-                      }
+                      final name = (value ?? '').trim().replaceAll(RegExp(r'\s+'), ' ');
+                      if (name.isEmpty) return 'Enter the co-maker’s name.';
+                      if (name.split(' ').length < 2) return 'Enter the co-maker’s first and last name.';
                       if (candidate == null ||
-                          normalizeParticipantMemberId(candidate.memberId) !=
-                              memberId ||
+                          candidate.name.trim().toLowerCase() != name.toLowerCase() ||
                           (!widget.flow.participantsDemo &&
                               !candidate.isVerifiedMember) ||
                           (widget.flow.participantsDemo && !candidate.isDemo)) {
-                        return 'Look up this ID and select a registered member.';
+                        return 'Look up this name and select a registered member.';
                       }
                       return null;
                     },
@@ -278,16 +264,16 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                     child: Text(
                       _loading
                           ? !widget.flow.participantsDemo
-                                ? 'Verifying member…'
+                                ? 'Searching member name…'
                                 : 'Looking up demo member…'
                           : !widget.flow.participantsDemo
-                          ? 'Verify Co-maker Member ID'
+                          ? 'Verify Co-maker Member Name'
                           : 'Look Up Demo Member',
                     ),
                   ),
                   if (widget.flow.participantsDemo)
                     const Text(
-                      'Example demo IDs: CSUCC-2099-9001 and CSUCC-2099-9002.',
+                      'Example demo names: Demo Member One and Demo Member Two.',
                       style: AppTheme.captionRegular,
                     ),
                   if (candidate != null) ...[

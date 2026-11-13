@@ -167,7 +167,7 @@ class _BorrowerCoMakerInvitationScreenState
       }
       participants
         ..coMaker = null
-        ..memberIdInput = ''
+        ..coMakerNameInput = ''
         ..relationship = ''
         ..coMakerIdDocument = null
         ..coMakerIdDocumentPath = null;
@@ -392,9 +392,12 @@ class _CoMakerInvitationReviewScreenState
     if (_busy) return;
     final confirmed = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Decline co-maker invitation?'),
-        content: const Text('The borrower will be notified that you declined.'),
+        content: const Text(
+          'Rejecting ends this invitation. The borrower will be notified and you will not be able to accept it afterward.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -402,7 +405,8 @@ class _CoMakerInvitationReviewScreenState
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Decline'),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
+            child: const Text('Reject Invitation'),
           ),
         ],
       ),
@@ -413,12 +417,24 @@ class _CoMakerInvitationReviewScreenState
       _error = null;
     });
     try {
-      await _invitationService().reject(widget.requestId);
+      final result = await _invitationService().reject(widget.requestId);
       if (!mounted) return;
+      final notificationSent = result['notification_sent'] == true;
+      final emailSent = result['email_sent'] == true;
+      final message = switch ((notificationSent, emailSent)) {
+        (true, true) =>
+          'The invitation was rejected. The borrower received an in-app notification and an email.',
+        (true, false) =>
+          'The invitation was rejected. The borrower received an in-app notification, but the email could not be sent.',
+        (false, true) =>
+          'The invitation was rejected and an email was sent, but the in-app notification could not be saved.',
+        (false, false) =>
+          'The invitation was rejected, but neither an in-app notification nor an email could be confirmed.',
+      };
       await _showResult(
         context,
         title: 'Invitation declined',
-        message: 'The borrower has been notified.',
+        message: message,
       );
     } catch (error) {
       if (mounted) setState(() => _error = _message(error));
@@ -648,13 +664,25 @@ class _CoMakerAcceptanceOtpScreenState
           'The code verified a different member account. Sign in as the invited co-maker and try again.',
         );
       }
-      await _invitationService().confirmAccept(widget.requestId);
+      final result = await _invitationService().confirmAccept(widget.requestId);
       if (!mounted) return;
+      final notificationSent = result['notification_sent'] == true;
+      final emailSent = result['email_sent'] == true;
+      final deliveryMessage = switch ((notificationSent, emailSent)) {
+        (true, true) =>
+          'The borrower received an in-app notification and an email.',
+        (true, false) =>
+          'The borrower received an in-app notification, but the email could not be sent.',
+        (false, true) =>
+          'An email was sent to the borrower, but the in-app notification could not be saved.',
+        (false, false) =>
+          'The borrower could not be notified by email or in-app notification.',
+      };
       await _showResult(
         context,
         title: 'Co-Maker consent confirmed',
         message:
-            'You are now a Co-Maker of ${widget.borrowerName}’s ${widget.loanType} Loan. The application is still subject to cooperative review.',
+            'You are now a Co-Maker of ${widget.borrowerName}’s ${widget.loanType} Loan. $deliveryMessage The application is still subject to cooperative review.',
       );
     } catch (error) {
       if (mounted) setState(() => _error = _message(error));

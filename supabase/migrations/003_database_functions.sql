@@ -123,7 +123,7 @@ BEGIN
   FOR i IN 1..p_term_months LOOP
     v_payment_date := v_payment_date + INTERVAL '1 month';
 
-    RETURN QUERY NEXT
+    RETURN QUERY
     SELECT
       i,
       v_monthly_payment,
