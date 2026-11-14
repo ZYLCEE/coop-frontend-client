@@ -108,6 +108,8 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
       var nextProgressError =
           'Live review progress is unavailable. Pull down to retry.';
       final progressByApplication = <String, Map<String, dynamic>>{};
+      final rejectionReasonByApplication = <String, String>{};
+      var rejectionReasonLookupFailed = false;
       try {
         final progressRows = await _dbService.getMemberApplicationProgress();
         for (final row in progressRows) {
@@ -127,11 +129,40 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
       } catch (_) {
         // Keep loan history available while clearly marking unsynced workflow data.
       }
+      try {
+        final rejectionRows = await _dbService
+            .getMemberApplicationRejectionReasons();
+        for (final row in rejectionRows) {
+          final applicationId = row['application_id']?.toString();
+          final reason = row['rejection_reason']?.toString().trim();
+          if (applicationId != null && reason != null && reason.isNotEmpty) {
+            rejectionReasonByApplication[applicationId] = reason;
+          }
+        }
+      } catch (_) {
+        // Keep loan history available, but distinguish lookup failures from a
+        // successful lookup where the cooperative has not saved a reason.
+        rejectionReasonLookupFailed = true;
+      }
       final refreshedLoans = loans.map((loan) {
-        final progress =
-            progressByApplication[loan['application_id']?.toString()];
+        final applicationId = loan['application_id']?.toString();
+        final progress = progressByApplication[applicationId];
+        final savedRejectionReason =
+            rejectionReasonByApplication[applicationId];
+        final rowRejectionReason =
+            [loan['rejection_reason'], loan['rejectionReason']]
+                .map((value) => value?.toString().trim())
+                .firstWhere(
+                  (value) => value != null && value.isNotEmpty,
+                  orElse: () => null,
+                );
+        final rejectionReason = savedRejectionReason ?? rowRejectionReason;
         return {
           ...loan,
+          if (rejectionReason != null && rejectionReason.isNotEmpty)
+            '_rejection_reason': rejectionReason,
+          if (rejectionReasonLookupFailed)
+            '_rejection_reason_lookup_failed': true,
           if (progress != null) ...{
             '_workflow_stage': progress['workflow_stage'],
             '_review_stage': progress['review_stage'],
@@ -696,41 +727,81 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildSummaryCards() {
-    final statuses = _myLoans.map(LoanEligibility.statusFor).toList();
-    final activeCount = statuses
-        .where((status) => status == 'released' || status == 'overdue')
+    final displayStatuses = _myLoans.map((loan) {
+      final status = _loanStatusLabel(LoanEligibility.statusFor(loan));
+      return _applicationProgressLabel(
+        loan['_workflow_stage']?.toString(),
+        loan['_review_stage']?.toString(),
+        status,
+      );
+    }).toList();
+    final pendingLabels = {
+      'Pending',
+      'Under Review',
+      'Initial Review',
+      'CRECOM Review',
+      'BOD Review',
+      'Final Review',
+    };
+    final activeCount = displayStatuses
+        .where((status) => status == 'Active')
         .length;
-    final pendingCount = statuses
-        .where((status) => status == 'pending' || status == 'under review')
+    final pendingCount = displayStatuses.where(pendingLabels.contains).length;
+    final paidCount = displayStatuses
+        .where((status) => status == 'Fully Paid')
         .length;
-    final paidCount = statuses.where((status) => status == 'completed').length;
+    final rejectedCount = displayStatuses
+        .where((status) => status == 'Rejected')
+        .length;
+    final returnedCount = displayStatuses
+        .where((status) => status == 'Returned')
+        .length;
+    final overdueCount = displayStatuses
+        .where((status) => status == 'Overdue')
+        .length;
+    final approvedCount = displayStatuses
+        .where((status) => status == 'Approved')
+        .length;
+    final cards = [
+      (activeCount, 'Active', const Color(0xFF206A3B)),
+      (pendingCount, 'Pending', const Color(0xFFE67E22)),
+      (paidCount, 'Fully Paid', const Color(0xFF206A3B)),
+      (rejectedCount, 'Rejected', const Color(0xFFD32F2F)),
+      (returnedCount, 'Returned', const Color(0xFFE67E22)),
+      (overdueCount, 'Overdue', const Color(0xFFD32F2F)),
+      (approvedCount, 'Approved', const Color(0xFF206A3B)),
+    ];
 
-    return Row(
-      children: [
-        Expanded(
-          child: _buildSummaryCard(
-            activeCount.toString(),
-            'Active',
-            const Color(0xFF206A3B),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 12.0;
+        final cardWidth = constraints.maxWidth < 480
+            ? 116.0
+            : constraints.maxWidth < 800
+            ? 152.0
+            : 188.0;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: cards
+                .map(
+                  (card) => Padding(
+                    padding: const EdgeInsets.only(right: spacing),
+                    child: SizedBox(
+                      width: cardWidth,
+                      child: _buildSummaryCard(
+                        card.$1.toString(),
+                        card.$2,
+                        card.$3,
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
           ),
-        ),
-        SizedBox(width: Responsive.spacing(context, 12)),
-        Expanded(
-          child: _buildSummaryCard(
-            pendingCount.toString(),
-            'Pending',
-            const Color(0xFFE67E22),
-          ),
-        ),
-        SizedBox(width: Responsive.spacing(context, 12)),
-        Expanded(
-          child: _buildSummaryCard(
-            paidCount.toString(),
-            'Paid',
-            const Color(0xFF206A3B),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -773,29 +844,31 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildLoanHistory() {
-    final filteredLoans = _selectedFilter == 'All'
-        ? _myLoans
-        : _myLoans.where((loan) {
-            final status = LoanEligibility.statusFor(loan);
-            switch (_selectedFilter) {
-              case 'Pending':
-                return status == 'pending' || status == 'under review';
-              case 'Returned':
-                return status == 'returned';
-              case 'Approved':
-                return status == 'approved';
-              case 'Active':
-                return status == 'released';
-              case 'Overdue':
-                return status == 'overdue';
-              case 'Fully Paid':
-                return status == 'completed';
-              case 'Rejected':
-                return status == 'rejected';
-              default:
-                return true;
-            }
-          }).toList();
+    final filteredLoans =
+        (_selectedFilter == 'All'
+              ? _myLoans
+              : _myLoans.where((loan) {
+                  final status = LoanEligibility.statusFor(loan);
+                  switch (_selectedFilter) {
+                    case 'Pending':
+                      return status == 'pending' || status == 'under review';
+                    case 'Returned':
+                      return status == 'returned';
+                    case 'Approved':
+                      return status == 'approved';
+                    case 'Active':
+                      return status == 'released';
+                    case 'Overdue':
+                      return status == 'overdue';
+                    case 'Fully Paid':
+                      return status == 'completed';
+                    case 'Rejected':
+                      return status == 'rejected';
+                    default:
+                      return true;
+                  }
+                }).toList())
+          ..sort(_compareLoanHistoryOrder);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1008,6 +1081,11 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
                         bodApproved: _asInt(currentProgress['_bod_approved']),
                         bodAssigned: _asInt(currentProgress['_bod_assigned']),
                         appliedDate: appliedDate,
+                        rejectionReason: currentProgress['_rejection_reason']
+                            ?.toString(),
+                        rejectionReasonLookupFailed:
+                            currentProgress['_rejection_reason_lookup_failed'] ==
+                            true,
                       ),
                     ],
                   ),
@@ -1024,6 +1102,57 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
       }
       liveProgress.dispose();
     });
+  }
+
+  int _compareLoanHistoryOrder(
+    Map<String, dynamic> first,
+    Map<String, dynamic> second,
+  ) {
+    int priority(Map<String, dynamic> loan) {
+      final status = LoanEligibility.statusFor(loan).toLowerCase();
+      final workflowStage = loan['_workflow_stage']?.toString().toLowerCase();
+
+      // The member-facing card uses workflow stage for pending review labels
+      // such as Initial Review, CRECOM Review, and BOD Review. Keep those
+      // applications together at the top even if the stored loan status differs.
+      if (const {
+        'not_started',
+        'needs_verification',
+        'ready_for_committee',
+        'crecom_review',
+        'ready_for_bod',
+        'bod_review',
+        'ready_for_final',
+        'review_attention',
+        'returned_for_requirements',
+      }.contains(workflowStage)) {
+        return 0;
+      }
+
+      switch (status) {
+        case 'pending':
+        case 'under review':
+        case 'returned':
+          return 0;
+        case 'rejected':
+          return 2;
+        default:
+          return 1;
+      }
+    }
+
+    final priorityDifference = priority(first).compareTo(priority(second));
+    if (priorityDifference != 0) return priorityDifference;
+
+    // Preserve the existing newest-first history order within each group.
+    final firstDate = DateTime.tryParse(
+      '${first['date_submitted'] ?? first['created_at'] ?? ''}',
+    );
+    final secondDate = DateTime.tryParse(
+      '${second['date_submitted'] ?? second['created_at'] ?? ''}',
+    );
+    if (firstDate == null || secondDate == null) return 0;
+    return secondDate.compareTo(firstDate);
   }
 
   Widget _buildLoanHistoryCard(
@@ -1201,7 +1330,14 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
               else if (status == 'Rejected')
                 principal == null
                     ? const SizedBox.shrink()
-                    : _buildRejectedCardContent(principal, totalMonths ?? 0),
+                    : _buildRejectedCardContent(
+                        principal,
+                        totalMonths ?? 0,
+                        application['_rejection_reason']?.toString(),
+                        rejectionReasonLookupFailed:
+                            application['_rejection_reason_lookup_failed'] ==
+                            true,
+                      ),
             ],
           ),
         ),
@@ -1417,7 +1553,13 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildRejectedCardContent(double principal, int tenure) {
+  Widget _buildRejectedCardContent(
+    double principal,
+    int tenure,
+    String? rejectionReason, {
+    required bool rejectionReasonLookupFailed,
+  }) {
+    final reason = rejectionReason?.trim();
     return Column(
       children: [
         Container(
@@ -1443,6 +1585,32 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: Responsive.spacing(context, 12)),
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(Responsive.cardPadding(context)),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF7E0),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Reason for rejection',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                reason != null && reason.isNotEmpty
+                    ? reason
+                    : rejectionReasonLookupFailed
+                    ? 'The rejection reason could not be loaded from the cooperative system. Pull down to refresh and try again.'
+                    : 'The cooperative has not recorded a rejection reason for this application yet. Please contact the cooperative.',
               ),
             ],
           ),
@@ -1723,6 +1891,8 @@ class _ApplicationProgressTimeline extends StatelessWidget {
     required this.bodApproved,
     required this.bodAssigned,
     required this.appliedDate,
+    this.rejectionReason,
+    this.rejectionReasonLookupFailed = false,
   });
 
   final String status;
@@ -1733,6 +1903,8 @@ class _ApplicationProgressTimeline extends StatelessWidget {
   final int? bodApproved;
   final int? bodAssigned;
   final String appliedDate;
+  final String? rejectionReason;
+  final bool rejectionReasonLookupFailed;
 
   @override
   Widget build(BuildContext context) {
@@ -1740,6 +1912,12 @@ class _ApplicationProgressTimeline extends StatelessWidget {
     final stage = workflowStage?.toLowerCase();
     final rejected = normalized == 'rejected' || stage == 'final_rejected';
     final finalRejected = stage == 'final_rejected';
+    final reason = rejectionReason?.trim();
+    final reasonText = reason == null || reason.isEmpty
+        ? rejectionReasonLookupFailed
+              ? 'The rejection reason could not be loaded from the cooperative system. Pull down to refresh and try again.'
+              : 'The cooperative has not recorded a rejection reason for this application yet. Please contact the cooperative.'
+        : 'Reason: $reason';
     final returned =
         normalized == 'returned' || stage == 'returned_for_requirements';
     final completed = const {
@@ -1775,7 +1953,7 @@ class _ApplicationProgressTimeline extends StatelessWidget {
             ? 'Returned for Correction'
             : 'Initial Requirements Review',
         description: rejected && !finalRejected
-            ? 'The cooperative did not approve this application.'
+            ? 'The cooperative did not approve this application. $reasonText'
             : returned
             ? 'Corrections are required before the application can continue.'
             : 'The cooperative checks your application documents and requirements.',
@@ -1805,7 +1983,7 @@ class _ApplicationProgressTimeline extends StatelessWidget {
       _ApplicationProgressStage(
         title: finalRejected ? 'Final Decision · Rejected' : 'Final Review',
         description: finalRejected
-            ? 'The application was rejected after cooperative review.'
+            ? 'The application was rejected after cooperative review. $reasonText'
             : stage == 'ready_for_final'
             ? 'CRECOM: ${crecomApproved ?? 0} of ${crecomAssigned ?? 3} approved. BOD: ${bodApproved ?? 0} of ${bodAssigned ?? 1} approved. The application is awaiting the final decision.'
             : 'The cooperative records its final decision after committee review.',

@@ -131,8 +131,14 @@ class CoMakerInvitationService {
   Future<Map<String, dynamic>> beginAccept(String requestId) =>
       _action(action: 'begin_accept', requestId: requestId);
 
-  Future<Map<String, dynamic>> reject(String requestId) =>
-      _action(action: 'reject', requestId: requestId);
+  Future<Map<String, dynamic>> reject(
+    String requestId, {
+    required String reason,
+  }) => _action(
+    action: 'reject',
+    requestId: requestId,
+    extra: {'reason': reason},
+  );
 
   Future<Map<String, dynamic>> confirmAccept(String requestId) =>
       _action(action: 'confirm_accept', requestId: requestId);
@@ -140,9 +146,10 @@ class CoMakerInvitationService {
   Future<Map<String, dynamic>> _action({
     required String action,
     required String requestId,
+    Map<String, dynamic> extra = const {},
   }) async {
     _ensureMainProject();
-    return _invoke({'action': action, 'request_id': requestId});
+    return _invoke({'action': action, 'request_id': requestId, ...extra});
   }
 
   Future<Map<String, dynamic>> _invoke(Map<String, dynamic> body) async {

@@ -152,6 +152,7 @@ class LoanComputation {
   final double processingFee;
   final double notarialFee;
   final double retentionFee;
+  final double serviceFeePercent;
   final double netTakeHome;
   final double monthlyAmortization;
   final List<DateTime> paymentDates;
@@ -163,6 +164,7 @@ class LoanComputation {
     required this.processingFee,
     required this.notarialFee,
     required this.retentionFee,
+    required this.serviceFeePercent,
     required this.netTakeHome,
     required this.monthlyAmortization,
     required this.paymentDates,
@@ -193,8 +195,9 @@ class LoanCalculatorService {
     final retentionFee = principal * serviceFeePercent / 100;
 
     // Calculate net take-home
-    double netTakeHome =
-        principal - totalInterest - processingFee - notarialFee - retentionFee;
+    // Interest is repaid through the installment schedule below. Only fees
+    // deducted at disbursement reduce the borrower's take-home amount.
+    final netTakeHome = principal - processingFee - notarialFee - retentionFee;
 
     // Calculate monthly amortization
     double monthlyAmortization =
@@ -210,6 +213,7 @@ class LoanCalculatorService {
       processingFee: processingFee,
       notarialFee: notarialFee,
       retentionFee: retentionFee,
+      serviceFeePercent: serviceFeePercent,
       netTakeHome: netTakeHome,
       monthlyAmortization: monthlyAmortization,
       paymentDates: paymentDates,
@@ -241,5 +245,12 @@ class LoanCalculatorService {
         ? rate.toStringAsFixed(0)
         : rate.toString();
     return compact ? '$percentage%/mo' : '$percentage% / month flat';
+  }
+
+  static String formatFeePercentage(double rate) {
+    final percentage = rate % 1 == 0
+        ? rate.toStringAsFixed(0)
+        : rate.toString();
+    return '$percentage%';
   }
 }

@@ -704,7 +704,8 @@ class LiveBreakdownCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           BreakdownRow(
-            label: 'Retention Fee (5%)',
+            label:
+                'Retention Fee (${LoanCalculatorService.formatFeePercentage(computation.serviceFeePercent)})',
             value:
                 '-${LoanCalculatorService.formatCurrency(computation.retentionFee)}',
             isWhite: true,

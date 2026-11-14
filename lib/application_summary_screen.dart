@@ -416,11 +416,17 @@ class ConfirmationCard extends StatelessWidget {
                   ),
                   const TextSpan(
                     text: 'CSUCC',
-                    style: TextStyle(color: Color(0xFFFFD817)),
+                    style: TextStyle(
+                      color: AppTheme.accentGold,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const TextSpan(
-                    text: 'ERMPC',
-                    style: TextStyle(color: Colors.white),
+                    text: ' ERMPC',
+                    style: TextStyle(
+                      color: AppTheme.primaryGreen,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const TextSpan(
                     text: ' to process your loan application.',

@@ -5,9 +5,15 @@ import 'security/quick_access_controller.dart';
 import 'security/quick_access_service.dart';
 
 class QuickAccessSetupScreen extends StatefulWidget {
-  const QuickAccessSetupScreen({super.key, this.controller, this.onCompleted});
+  const QuickAccessSetupScreen({
+    super.key,
+    this.controller,
+    this.onCompleted,
+    this.isSettingsMode = false,
+  });
   final QuickAccessController? controller;
   final VoidCallback? onCompleted;
+  final bool isSettingsMode;
 
   @override
   State<QuickAccessSetupScreen> createState() => _QuickAccessSetupScreenState();
@@ -192,12 +198,14 @@ class _QuickAccessSetupScreenState extends State<QuickAccessSetupScreen> {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          actions: [
-            TextButton(
-              onPressed: _busy || !_canSetup ? null : _skip,
-              child: const Text('Skip'),
-            ),
-          ],
+          actions: widget.isSettingsMode
+              ? null
+              : [
+                  TextButton(
+                    onPressed: _busy || !_canSetup ? null : _skip,
+                    child: const Text('Skip'),
+                  ),
+                ],
         ),
         body: SafeArea(
           child: SingleChildScrollView(
@@ -208,8 +216,10 @@ class _QuickAccessSetupScreenState extends State<QuickAccessSetupScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Quick Access Setup',
+                    Text(
+                      widget.isSettingsMode
+                          ? 'Change PIN / Biometric'
+                          : 'Quick Access Setup',
                       style: TextStyle(
                         color: _green,
                         fontSize: 28,
@@ -217,8 +227,10 @@ class _QuickAccessSetupScreenState extends State<QuickAccessSetupScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Choose a faster unlock method for future sessions, or skip to use your Member ID and password.',
+                    Text(
+                      widget.isSettingsMode
+                          ? 'Choose a new 4-digit PIN or enable biometric unlock for this device.'
+                          : 'Choose a faster unlock method for future sessions, or skip to use your Member ID and password.',
                       style: TextStyle(color: _green, fontSize: 14),
                     ),
                     const SizedBox(height: 24),

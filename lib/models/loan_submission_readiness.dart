@@ -185,7 +185,13 @@ class LoanSubmissionReadiness {
         ),
         _witness('Witness 1', snapshot.witnessOne),
         _witness('Witness 2', snapshot.witnessTwo),
-        _item('Employer Certification', LoanReadinessStatus.pendingCooperative),
+        _item(
+          'Employer Certification',
+          snapshot.documents.containsKey(LoanDocumentKind.employerCertification)
+              ? LoanReadinessStatus.selectedLocally
+              : LoanReadinessStatus.incomplete,
+          'A signed employer certification is required with the application.',
+        ),
         _item(
           'Promissory Note',
           LoanReadinessStatus.pendingCooperative,

@@ -223,17 +223,39 @@ class LoanAgreementPreview extends StatelessWidget {
         SelectedDocumentsCard(snapshot: snapshot),
         const SizedBox(height: AppTheme.spacingL),
       ],
-      const LoanReviewSection(
+      LoanReviewSection(
         title: 'Agreement and Promissory Note',
         children: [
+          Center(
+            child: Column(
+              children: [
+                Image.asset('assets/csucc-logo.png', width: 64, height: 64),
+                const SizedBox(height: AppTheme.spacingS),
+                const Text(
+                  'CSUCC EMPLOYEES AND RETIREES MULTI-PURPOSE COOPERATIVE',
+                  textAlign: TextAlign.center,
+                  style: AppTheme.bodyBold,
+                ),
+                const Text(
+                  'CSUCC ER MPC · City of Cabadbaran',
+                  textAlign: TextAlign.center,
+                  style: AppTheme.captionRegular,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppTheme.spacingM),
+          const Text('Promissory Note', style: AppTheme.bodyBold),
           Text(
-            'Application / Agreement wording and the Promissory Note await an approved digital template.',
+            'I promise to pay CSUCC ER MPC ${LoanCalculatorService.formatCurrency(snapshot.amount)}, '
+            'plus monthly interest of ${LoanCalculatorService.formatPercentage(snapshot.computation.interestRate, compact: true)}. '
+            'I authorize salary deduction of the loan installment and agree to pay monthly amortization through postdated checks (PDC) when required, based on my capacity to pay and not from my net take-home pay.',
             style: AppTheme.bodyRegular,
           ),
-          SizedBox(height: AppTheme.spacingM),
-          Text('Terms and Conditions', style: AppTheme.bodyBold),
-          Text(
-            'Approved wording for this digital preview is pending.',
+          const SizedBox(height: AppTheme.spacingM),
+          const Text('Terms and Conditions', style: AppTheme.bodyBold),
+          const Text(
+            'Review the Terms and Conditions and Promissory Note on the Review step. Each requires a separate read-and-agree confirmation before submission.',
             style: AppTheme.bodyRegular,
           ),
         ],
@@ -244,7 +266,13 @@ class LoanAgreementPreview extends StatelessWidget {
         children: [
           Text('Employer Certification', style: AppTheme.bodyBold),
           Text(
-            'Certification by an authorized employer representative is pending.',
+            'Required: upload a clear image or PDF of the signed Employer Certification. An authorized employer representative certifies the borrower/co-maker signatures, employment and service, leave/charge/retirement status, loan standing, and the borrower’s current net take-home pay.',
+            style: AppTheme.bodyRegular,
+          ),
+          const SizedBox(height: AppTheme.spacingS),
+          const Text('Other Supporting Documents', style: AppTheme.bodyBold),
+          const Text(
+            'Optional additional files may be uploaded separately.',
             style: AppTheme.bodyRegular,
           ),
           SizedBox(height: AppTheme.spacingM),

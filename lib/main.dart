@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
+import 'bellicon.dart';
 import 'quick_access_gate.dart';
 import 'member_activity_boundary.dart';
 import 'security/secure_auth_storage.dart';
@@ -144,6 +145,9 @@ class MyApp extends StatelessWidget {
         ),
       ),
       home: const QuickAccessEntry(),
+      routes: {
+        '/notifications': (_) => const NotificationsScreen(),
+      },
     );
   }
 }

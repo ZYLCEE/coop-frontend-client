@@ -335,9 +335,14 @@ serve(async (request) => {
       if (!['pending', 'otp_pending'].includes(invite.status)) {
         return respond({ error: 'This invitation has already been answered.' }, 409)
       }
+      const reason = typeof input.reason === 'string' ? input.reason.trim() : ''
+      if (reason.length < 3 || reason.length > 500) {
+        return respond({ error: 'Enter a reason between 3 and 500 characters.' }, 400)
+      }
+      const rejectedMessage = `Your ${invite.loan_type} Loan request for ${invite.borrower_name} was declined. Reason: ${reason}`
       const { data: updated, error: updateError } = await admin
         .from('co_maker_requests')
-        .update({ status: 'rejected', rejected_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .update({ status: 'rejected', rejected_at: new Date().toISOString(), rejection_reason: reason, updated_at: new Date().toISOString() })
         .eq('id', requestId)
         .in('status', ['pending', 'otp_pending'])
         .select('id')
@@ -346,7 +351,7 @@ serve(async (request) => {
       const { error: notifyError } = await admin.from('notifications').insert({
         user_id: invite.borrower_user_id,
         title: `${invite.co_maker_name} declined the co-maker invitation.`,
-        message: `Your ${invite.loan_type} Loan request for ${invite.borrower_name} was declined. You can choose another co-maker.`,
+        message: `${rejectedMessage}. You can choose another co-maker.`,
         type: 'co_maker_response',
         data: { request_id: requestId, status: 'rejected' },
       })
@@ -355,7 +360,7 @@ serve(async (request) => {
       const emailSent = await sendNotificationEmail(
         borrowerAuth.user?.email,
         `${invite.co_maker_name} declined the co-maker invitation.`,
-        `Your ${invite.loan_type} Loan invitation for ${invite.borrower_name} was declined. You can choose another co-maker.`,
+        `${rejectedMessage}. You can choose another co-maker.`,
         `co-maker-response/${requestId}/rejected`,
         invite.application_id,
       )

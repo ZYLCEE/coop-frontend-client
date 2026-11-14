@@ -60,6 +60,8 @@ class _DocumentsDisbursementScreenState
   String? get _idFileName => _documents[LoanDocumentKind.validId]?.name;
   String? get _collateralFileName =>
       _documents[LoanDocumentKind.collateral]?.name;
+  String? get _employerCertificationFileName =>
+      _documents[LoanDocumentKind.employerCertification]?.name;
   String? get _otherFileName => _documents[LoanDocumentKind.supporting]?.name;
 
   @override
@@ -174,11 +176,13 @@ class _DocumentsDisbursementScreenState
   }
 
   bool _isVisible(LoanDocumentKind kind) =>
-      kind.isVisibleFor(amount: _amount, participantsDemo: _participantsDemo);
+      kind.isVisibleFor(
+        amount: _amount,
+        collateralRequiredAbove: widget.collateralRequiredAbove,
+      );
 
   bool _isRequired(LoanDocumentKind kind) => kind.isRequiredFor(
     amount: _amount,
-    participantsDemo: _participantsDemo,
     collateralRequiredAbove: widget.collateralRequiredAbove,
   );
 
@@ -262,6 +266,22 @@ class _DocumentsDisbursementScreenState
                   ),
                 ),
               ],
+              const SizedBox(height: AppTheme.spacingM),
+              UploadRequirementCard(
+                title: 'Employer Certification *',
+                subtitle:
+                    'Required signed form. The employer certifies the borrower/co-maker signatures, employment and service, leave/charge/retirement status, loan standing, and net take-home pay. Upload a clear photo or PDF.',
+                isRequired: true,
+                fileName: _employerCertificationFileName,
+                document: _documents[LoanDocumentKind.employerCertification],
+                enabled: !_busy,
+                onUpload: () =>
+                    _pickDocument(LoanDocumentKind.employerCertification),
+                onRemove: () => setState(
+                  () =>
+                      _documents.remove(LoanDocumentKind.employerCertification),
+                ),
+              ),
               const SizedBox(height: AppTheme.spacingM),
               UploadRequirementCard(
                 title: 'Other Supporting Documents',

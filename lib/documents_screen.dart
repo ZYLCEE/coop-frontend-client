@@ -123,10 +123,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       await load();
     } on StateError catch (failure) {
       message(failure.message.toString());
-    } catch (_) {
-      message(
-        'The replacement could not be submitted. Refresh your documents and try again.',
-      );
+    } catch (failure) {
+      message('Replacement could not be submitted: $failure');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -275,47 +273,10 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
 
   Future<void> resubmit(DocumentRow item) async {
     if (busy) return;
-    final purpose = TextEditingController(
-      text: item['purpose']?.toString() ?? '',
-    );
     final value = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Resubmit loan application?'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(item['reason']?.toString() ?? ''),
-              const SizedBox(height: 12),
-              TextField(
-                controller: purpose,
-                maxLength: 2000,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Loan purpose / corrected purpose',
-                ),
-              ),
-              const Text(
-                'Replace or upload the requested documents first. Your application will return to Pending and go through fresh requirements checks, three CRECOM approvals and BOD approval. Contact the cooperative if the requested amount or loan terms need changing.',
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, purpose.text.trim()),
-            child: const Text('Resubmit'),
-          ),
-        ],
-      ),
+      builder: (_) => ReturnedLoanResubmitDialog(item: item),
     );
-    purpose.dispose();
     if (value == null || !mounted) return;
     setState(() => busy = true);
     try {
@@ -327,7 +288,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       );
       await service.resubmit(applicationId, request, value);
       message(
-        'Application resubmitted as Pending. Fresh checks and approvals are required.',
+        'Application returned to initial review. Fresh checks and approvals are required.',
       );
       await load();
     } on StateError catch (error) {
@@ -364,50 +325,82 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     }
   }
 
-  Widget correctionCard(DocumentRow item) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Action required · ${item['applicationId']}',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Text(item['reason'] as String),
-          const SizedBox(height: 8),
-          Text(
-            '${date(item['createdAt'])} PHT',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Follow these instructions and replace the affected files below. When your corrections are complete, resubmit for fresh checks and approvals.',
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final kind in List<String>.from(item['missingKinds'] ?? []))
-                OutlinedButton(
-                  onPressed: busy ? null : () => uploadMissing(item, kind),
-                  child: Text(
-                    'Upload ${LoanDocumentKind.values.byName(kind).label}',
+  Widget correctionCard(DocumentRow item) {
+    final applicationId = item['applicationId']?.toString();
+    final applicationDocuments = submissions
+        .where((document) {
+          final application = document['loan_applications'] as Map?;
+          return application?['application_id'] == applicationId;
+        })
+        .toList();
+    final documentsByKind = {
+      for (final document in applicationDocuments)
+        document['kind']?.toString(): document,
+    };
+    // A returned file can still exist in the member's documents. Use the
+    // return event's affectedKinds to expose its replacement action here,
+    // instead of only showing upload buttons for absent documents.
+    final requestedKinds = List<String>.from(item['affectedKinds'] ?? const []);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Action required · ${item['applicationId']}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(item['reason'] as String),
+            const SizedBox(height: 8),
+            Text(
+              '${date(item['createdAt'])} PHT',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Replace or upload each requested document below. When your corrections are complete, resubmit for fresh checks and approvals.',
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final kind in requestedKinds)
+                  if (documentsByKind[kind] case final document?)
+                    OutlinedButton.icon(
+                      onPressed: busy ? null : () => replace(document),
+                      icon: const Icon(Icons.upload_file),
+                      label: Text(
+                        'Replace ${LoanDocumentKind.values.byName(kind).label}',
+                      ),
+                    )
+                  else
+                    OutlinedButton.icon(
+                      onPressed: busy ? null : () => uploadMissing(item, kind),
+                      icon: const Icon(Icons.upload_file),
+                      label: Text(
+                        'Upload ${LoanDocumentKind.values.byName(kind).label}',
+                      ),
+                    ),
+                if (requestedKinds.isEmpty)
+                  const Text(
+                    'No document type was specified. Contact the cooperative for clarification before resubmitting.',
                   ),
+                FilledButton.icon(
+                  onPressed: busy ? null : () => resubmit(item),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Correct and resubmit'),
                 ),
-              FilledButton.icon(
-                onPressed: busy ? null : () => resubmit(item),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Correct and resubmit'),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget sharedCard(DocumentRow item) => Card(
     child: Padding(
@@ -568,4 +561,63 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       ),
     );
   }
+}
+
+class ReturnedLoanResubmitDialog extends StatefulWidget {
+  const ReturnedLoanResubmitDialog({super.key, required this.item});
+
+  final DocumentRow item;
+
+  @override
+  State<ReturnedLoanResubmitDialog> createState() =>
+      _ReturnedLoanResubmitDialogState();
+}
+
+class _ReturnedLoanResubmitDialogState
+    extends State<ReturnedLoanResubmitDialog> {
+  late final TextEditingController purpose = TextEditingController(
+    text: widget.item['purpose']?.toString() ?? '',
+  );
+
+  @override
+  void dispose() {
+    purpose.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Resubmit loan application?'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.item['reason']?.toString() ?? ''),
+          const SizedBox(height: 12),
+          TextField(
+            controller: purpose,
+            maxLength: 2000,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Loan purpose / corrected purpose',
+            ),
+          ),
+          const Text(
+            'Replace or upload the requested documents first. Resubmission returns the application to initial review for fresh requirements checks and approvals. Contact the cooperative if the requested amount or loan terms need changing.',
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, purpose.text.trim()),
+        child: const Text('Resubmit'),
+      ),
+    ],
+  );
 }

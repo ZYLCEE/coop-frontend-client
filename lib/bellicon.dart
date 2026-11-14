@@ -20,6 +20,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     with WidgetsBindingObserver {
   List<NotificationItem> _notifications = [];
   bool _loading = true;
+  bool _markingAllRead = false;
   String? _error;
   RealtimeChannel? _notificationChannel;
   Timer? _refreshDebounce;
@@ -147,35 +148,72 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     }
   }
 
+  Future<void> _markAllAsRead() async {
+    if (_markingAllRead || !_notifications.any((item) => item.isHighlighted)) {
+      return;
+    }
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    setState(() => _markingAllRead = true);
+    try {
+      await DatabaseService().markAllNotificationsAsRead(user.id);
+      if (!mounted) return;
+      setState(() {
+        for (final notification in _notifications) {
+          notification.isHighlighted = false;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not mark notifications as read.')),
+      );
+    } finally {
+      if (mounted) setState(() => _markingAllRead = false);
+    }
+  }
+
   Future<void> _openNotification(NotificationItem notification) async {
     if (notification.isHighlighted) {
       await _markAsRead(notification);
     }
-    final noticeData = notification.data;
-    final application =
-        noticeData != null && noticeData['entityType'] == 'application'
-        ? noticeData['entityKey']
-        : null;
-    if (application is String &&
-        RegExp(r'^[A-Za-z0-9_-]{1,100}$').hasMatch(application)) {
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => LoanDetailsScreen(applicationId: application),
-        ),
-      );
-      if (mounted) await _loadNotifications(background: true);
-      return;
-    }
-    if (notification.type != 'co_maker_invitation') return;
-    final requestId = notification.data?['request_id'];
-    if (requestId is! String || requestId.isEmpty) return;
     if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CoMakerInvitationReviewScreen(requestId: requestId),
+    final applicationId = notification.applicationId;
+    final requestId = notification.data?['request_id'];
+    final invitationRequestId =
+        notification.type == 'co_maker_invitation' &&
+            requestId is String &&
+            requestId.isNotEmpty
+        ? requestId
+        : null;
+    final openLabel = applicationId != null
+        ? 'Open Loan Details'
+        : invitationRequestId != null
+        ? 'Review Invitation'
+        : null;
+    final shouldOpen = await showDialog<bool>(
+      context: context,
+      builder: (_) => NotificationDetailsDialog(
+        notification: notification,
+        applicationId: applicationId,
+        actionLabel: openLabel,
       ),
     );
+    if (shouldOpen != true || !mounted) return;
+    if (applicationId != null) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => LoanDetailsScreen(applicationId: applicationId),
+        ),
+      );
+    } else if (invitationRequestId != null) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              CoMakerInvitationReviewScreen(requestId: invitationRequestId),
+        ),
+      );
+    }
     if (mounted) await _loadNotifications(background: true);
   }
 
@@ -204,7 +242,31 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                             ),
                           ] else if (_notifications.isEmpty)
                             const Center(child: Text('No notifications yet.'))
-                          else
+                          else ...[
+                            if (_notifications.any(
+                              (notification) => notification.isHighlighted,
+                            ))
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: TextButton.icon(
+                                    onPressed: _markingAllRead
+                                        ? null
+                                        : _markAllAsRead,
+                                    icon: _markingAllRead
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.done_all),
+                                    label: const Text('Mark all as read'),
+                                  ),
+                                ),
+                              ),
                             ..._notifications.map((notification) {
                               return Padding(
                                 padding: const EdgeInsets.only(
@@ -215,14 +277,18 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                                   onAction: notification.actionText == null
                                       ? null
                                       : () => _openNotification(notification),
+                                  onMarkRead: notification.isHighlighted
+                                      ? () => _markAsRead(notification)
+                                      : null,
                                 ),
                               );
                             }),
+                          ],
                         ],
                       ),
                     ),
             ),
-            AppBottomNavigationBar(currentIndex: 0, parentContext: context),
+            AppBottomNavigationBar(currentIndex: 3, parentContext: context),
           ],
         ),
       ),
@@ -243,6 +309,18 @@ class NotificationItem {
   final String? databaseId;
   final String? type;
   final Map<String, dynamic>? data;
+
+  String? get applicationId {
+    final entityKey = data?['entityKey'];
+    final value = data?['entityType'] == 'application' && entityKey is String
+        ? entityKey
+        : RegExp(
+            r'\bLA-[A-Za-z0-9-]{1,100}\b',
+          ).firstMatch(description)?.group(0);
+    return value != null && RegExp(r'^[A-Za-z0-9_-]{1,100}$').hasMatch(value)
+        ? value
+        : null;
+  }
 
   NotificationItem({
     required this.id,
@@ -276,20 +354,12 @@ class NotificationItem {
       _ => Icons.notifications_none,
     };
     final id = row['id']?.toString() ?? '';
-    final hasApplication =
-        data != null &&
-        data['entityType'] == 'application' &&
-        data['entityKey'] is String;
     return NotificationItem(
       id: id,
       databaseId: id,
       type: type,
       data: data,
-      actionText: type == 'co_maker_invitation'
-          ? 'Review Invitation'
-          : hasApplication
-          ? 'View Details'
-          : null,
+      actionText: 'View Details',
       title: row['title']?.toString() ?? 'Notification',
       description: row['message']?.toString() ?? '',
       timestamp: date == null ? '' : DateFormat.yMMMd().add_jm().format(date),
@@ -299,6 +369,459 @@ class NotificationItem {
       isHighlighted: row['read'] != true,
     );
   }
+}
+
+class NotificationDetailsDialog extends StatelessWidget {
+  const NotificationDetailsDialog({
+    super.key,
+    required this.notification,
+    required this.applicationId,
+    required this.actionLabel,
+  });
+
+  final NotificationItem notification;
+  final String? applicationId;
+  final String? actionLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = notification.data ?? const <String, dynamic>{};
+    final action = data['action']?.toString();
+    final category = data['category']?.toString();
+    final actorName = data['actorName']?.toString();
+    final actorRole = data['actorRole']?.toString();
+    final documentName = _notificationDocumentName(notification, action);
+    final approval = _notificationApprovalProgress(notification);
+
+    return AlertDialog(
+      backgroundColor: AppTheme.cardWhite,
+      title: Text(notification.title),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (category != null && category.isNotEmpty)
+              _NotificationDetailRow(
+                label: 'Type',
+                value: _humanizeNotificationValue(category),
+              ),
+            if (applicationId != null)
+              _NotificationDetailRow(
+                label: 'Loan application',
+                value: applicationId!,
+              ),
+            if (documentName != null)
+              _NotificationDetailRow(label: 'Document', value: documentName),
+            if (actorName != null && actorName.isNotEmpty)
+              _NotificationDetailRow(
+                label: 'Recorded by',
+                value: actorRole == null || actorRole.isEmpty
+                    ? actorName
+                    : '$actorName · ${_humanizeNotificationValue(actorRole)}',
+              ),
+            if (approval != null) ...[
+              const SizedBox(height: AppTheme.spacingM),
+              _CommitteeApprovalDetails(
+                progress: approval,
+                actorName: actorName,
+                actorRole: actorRole,
+                recordedAt: notification.timestamp,
+              ),
+            ],
+            const SizedBox(height: AppTheme.spacingM),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppTheme.spacingM),
+              decoration: BoxDecoration(
+                color: AppTheme.background,
+                borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
+              ),
+              child: Text(
+                notification.description,
+                style: const TextStyle(
+                  color: AppTheme.darkText,
+                  fontSize: 14,
+                  height: 1.45,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppTheme.spacingM),
+            _NotificationDetailRow(
+              label: 'Received',
+              value: notification.timestamp.isEmpty
+                  ? 'Time unavailable'
+                  : notification.timestamp,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Close'),
+        ),
+        if (actionLabel != null)
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.primaryGreen,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(actionLabel!),
+          ),
+      ],
+    );
+  }
+}
+
+class _NotificationDetailRow extends StatelessWidget {
+  const _NotificationDetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: AppTheme.spacingS),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: AppTheme.mutedGray, fontSize: 12),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            color: AppTheme.darkText,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _CommitteeApprovalProgress {
+  const _CommitteeApprovalProgress({
+    required this.stage,
+    required this.approved,
+    required this.required,
+  });
+
+  final String stage;
+  final int approved;
+  final int required;
+}
+
+_CommitteeApprovalProgress? _notificationApprovalProgress(
+  NotificationItem notification,
+) {
+  final match = RegExp(
+    r'(\d+)\s+of\s+(\d+)\s+approvals?',
+    caseSensitive: false,
+  ).firstMatch(notification.description);
+  if (match == null) return null;
+  final approved = int.tryParse(match.group(1) ?? '');
+  final required = int.tryParse(match.group(2) ?? '');
+  if (approved == null || required == null || required <= 0) return null;
+  final context = '${notification.title} ${notification.description}'
+      .toUpperCase();
+  final stage = context.contains('BOD') ? 'BOD' : 'CRECOM';
+  return _CommitteeApprovalProgress(
+    stage: stage,
+    approved: approved > required ? required : approved,
+    required: required,
+  );
+}
+
+class _CommitteeReviewerDetail {
+  const _CommitteeReviewerDetail({
+    required this.name,
+    required this.position,
+    required this.approved,
+    this.recordedAt,
+  });
+
+  final String name;
+  final String position;
+  final bool approved;
+  final String? recordedAt;
+}
+
+class _CommitteeApprovalDetails extends StatelessWidget {
+  const _CommitteeApprovalDetails({
+    required this.progress,
+    required this.actorName,
+    required this.actorRole,
+    required this.recordedAt,
+  });
+
+  final _CommitteeApprovalProgress progress;
+  final String? actorName;
+  final String? actorRole;
+  final String recordedAt;
+
+  List<_CommitteeReviewerDetail> _reviewers() {
+    final positions = progress.stage == 'CRECOM'
+        ? const ['CRECOM Member 1', 'CRECOM Member 2', 'CRECOM Chairperson']
+        : const ['BOD Reviewer'];
+    final reviewers = List.generate(
+      positions.length,
+      (index) => _CommitteeReviewerDetail(
+        name: 'Awaiting reviewer',
+        position: positions[index],
+        approved: false,
+      ),
+    );
+    final approvedCount = progress.approved.clamp(0, positions.length).toInt();
+    for (var index = 0; index < approvedCount; index++) {
+      reviewers[index] = _CommitteeReviewerDetail(
+        name: 'Reviewer name unavailable',
+        position: positions[index],
+        approved: true,
+      );
+    }
+
+    if (approvedCount > 0 &&
+        actorName != null &&
+        actorName!.trim().isNotEmpty) {
+      final role = (actorRole ?? '').toLowerCase();
+      var actorIndex = approvedCount - 1;
+      if (progress.stage == 'CRECOM') {
+        if (role.contains('chair')) {
+          actorIndex = 2;
+        } else if (role.contains('2') || role.contains('second')) {
+          actorIndex = 1;
+        } else if (role.contains('1') || role.contains('first')) {
+          actorIndex = 0;
+        }
+      }
+      if (actorIndex >= approvedCount) actorIndex = approvedCount - 1;
+      reviewers[actorIndex] = _CommitteeReviewerDetail(
+        name: actorName!.trim(),
+        position: positions[actorIndex],
+        approved: true,
+        recordedAt: recordedAt.isEmpty ? null : recordedAt,
+      );
+    }
+    return reviewers;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reviewers = _reviewers();
+    return Container(
+      width: double.infinity,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppTheme.cardWhite,
+        border: Border.all(color: const Color(0xFFDCE4ED)),
+        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(AppTheme.spacingM),
+            child: Text(
+              'Waiting for ${progress.stage} approval',
+              style: const TextStyle(
+                color: AppTheme.darkText,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          Container(
+            color: AppTheme.backButtonBg,
+            padding: const EdgeInsets.all(AppTheme.spacingM),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${progress.stage} confirmations',
+                    style: const TextStyle(
+                      color: AppTheme.darkText,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                _ApprovalCountBadge(progress: progress),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: Row(
+              children: const [
+                Expanded(flex: 4, child: Text('Reviewer · Position')),
+                Expanded(flex: 2, child: Text('Decision')),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFDCE4ED)),
+          ...reviewers.map(
+            (reviewer) => _CommitteeReviewerRow(reviewer: reviewer),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              progress.stage == 'CRECOM'
+                  ? 'Both CRECOM members and the chairperson must approve before BOD review.'
+                  : 'The BOD decision is recorded after committee review.',
+              style: const TextStyle(
+                color: AppTheme.mutedGray,
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ApprovalCountBadge extends StatelessWidget {
+  const _ApprovalCountBadge({required this.progress});
+
+  final _CommitteeApprovalProgress progress;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFF2C6),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      '${progress.approved} of ${progress.required} approved',
+      style: const TextStyle(
+        color: Color(0xFF8A4B08),
+        fontWeight: FontWeight.w600,
+        fontSize: 11,
+      ),
+    ),
+  );
+}
+
+class _CommitteeReviewerRow extends StatelessWidget {
+  const _CommitteeReviewerRow({required this.reviewer});
+
+  final _CommitteeReviewerDetail reviewer;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = reviewer.approved
+        ? const Color(0xFF166534)
+        : const Color(0xFF8A4B08);
+    final bg = reviewer.approved
+        ? const Color(0xFFDCFCE7)
+        : const Color(0xFFFFF2C6);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFFDCE4ED))),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 4,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  reviewer.name,
+                  style: const TextStyle(
+                    color: AppTheme.darkText,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  reviewer.position,
+                  style: const TextStyle(
+                    color: AppTheme.mutedGray,
+                    fontSize: 11,
+                  ),
+                ),
+                if (reviewer.recordedAt != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Recorded · ${reviewer.recordedAt}',
+                    style: const TextStyle(
+                      color: AppTheme.mutedGray,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Text(
+                  reviewer.approved ? 'Approved' : 'Waiting',
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String? _notificationDocumentName(
+  NotificationItem notification,
+  String? action,
+) {
+  if (action != 'document_reviewed') return null;
+  final message = notification.description;
+  final remainder = notification.applicationId == null
+      ? message
+      : message.replaceFirst(notification.applicationId!, '');
+  final firstPart = remainder.split('·').first;
+  final rawName = firstPart.contains(':')
+      ? firstPart.substring(firstPart.lastIndexOf(':') + 1).trim()
+      : firstPart.trim();
+  if (rawName.isEmpty) return null;
+  return switch (rawName.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '')) {
+    'validid' => 'Valid ID',
+    'payslip' => 'Pay Slip',
+    'collateral' => 'Collateral Document',
+    _ => _humanizeNotificationValue(rawName),
+  };
+}
+
+String _humanizeNotificationValue(String value) {
+  final normalized = value.replaceAll(RegExp(r'[_-]+'), ' ').trim();
+  if (normalized.isEmpty) return 'General';
+  return normalized
+      .split(RegExp(r'\s+'))
+      .map(
+        (word) => word.isEmpty
+            ? word
+            : '${word[0].toUpperCase()}${word.substring(1)}',
+      )
+      .join(' ');
 }
 
 class NotificationAppBar extends StatelessWidget {
@@ -352,9 +875,11 @@ class NotificationCard extends StatelessWidget {
     super.key,
     required this.notification,
     this.onAction,
+    this.onMarkRead,
   });
 
   final VoidCallback? onAction;
+  final VoidCallback? onMarkRead;
 
   @override
   Widget build(BuildContext context) {
@@ -416,10 +941,23 @@ class NotificationCard extends StatelessWidget {
                     height: 1.4,
                   ),
                 ),
-                if (onAction != null && notification.actionText != null)
-                  TextButton(
-                    onPressed: onAction,
-                    child: Text(notification.actionText!),
+                if ((onAction != null && notification.actionText != null) ||
+                    onMarkRead != null)
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      if (onAction != null && notification.actionText != null)
+                        TextButton(
+                          onPressed: onAction,
+                          child: Text(notification.actionText!),
+                        ),
+                      if (onMarkRead != null)
+                        TextButton.icon(
+                          onPressed: onMarkRead,
+                          icon: const Icon(Icons.mark_email_read_outlined),
+                          label: const Text('Mark as read'),
+                        ),
+                    ],
                   ),
               ],
             ),

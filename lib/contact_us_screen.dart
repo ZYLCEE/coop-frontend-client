@@ -42,11 +42,11 @@ class ContactUsScreen extends StatelessWidget {
                   children: [
                     TextSpan(
                       text: 'CSUCC',
-                      style: TextStyle(color: Color(0xFFFFD817)),
+                      style: TextStyle(color: AppTheme.accentGold),
                     ),
                     TextSpan(
                       text: 'ERMPC',
-                      style: TextStyle(color: Colors.white),
+                      style: TextStyle(color: AppTheme.primaryGreen),
                     ),
                   ],
                   style: TextStyle(
@@ -177,11 +177,11 @@ class ContactUsScreen extends StatelessWidget {
                 ),
                 TextSpan(
                   text: 'CSUCC',
-                  style: TextStyle(color: Color(0xFFFFD817)),
+                  style: TextStyle(color: AppTheme.accentGold),
                 ),
                 TextSpan(
                   text: 'ERMPC',
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: AppTheme.primaryGreen),
                 ),
                 TextSpan(
                   text:

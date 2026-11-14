@@ -7,6 +7,7 @@ import 'models/loan_consent_submission.dart';
 import 'models/loan_agreement_snapshot.dart';
 import 'demo_loan_consent_screen.dart';
 import 'co_maker_invitation_screen.dart';
+import 'loan_calculator_service.dart';
 
 class ReviewTermsScreen extends StatefulWidget {
   final LoanApplicationFlow flow;
@@ -25,10 +26,13 @@ class ReviewTermsScreen extends StatefulWidget {
 
 class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
   bool _acceptedTerms = false;
+  bool _acceptedPromissoryNote = false;
   bool _certifiedInformation = false;
 
   LoanConsentSubmission get _consent => LoanConsentSubmission(
     termsAccepted: _acceptedTerms,
+    promissoryNoteAccepted: _acceptedPromissoryNote,
+    promissoryNoteText: PromissoryNoteCard.textFor(widget.snapshot),
     informationCertified: _certifiedInformation,
     witnessNames: [widget.snapshot.witnessOne, widget.snapshot.witnessTwo],
   );
@@ -78,6 +82,8 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
               const SizedBox(height: AppTheme.spacingL),
               const TermsCard(),
               const SizedBox(height: AppTheme.spacingL),
+              PromissoryNoteCard(snapshot: widget.snapshot),
+              const SizedBox(height: AppTheme.spacingL),
               const Text(
                 'Please review the Terms & Conditions carefully before proceeding.',
                 style: TextStyle(
@@ -94,6 +100,17 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
                 onChanged: (value) {
                   setState(() {
                     _acceptedTerms = value ?? false;
+                  });
+                },
+              ),
+              const SizedBox(height: AppTheme.spacingM),
+              AgreementCheckbox(
+                label:
+                    'I have read, understood, and agree to the Promissory Note.',
+                value: _acceptedPromissoryNote,
+                onChanged: (value) {
+                  setState(() {
+                    _acceptedPromissoryNote = value ?? false;
                   });
                 },
               ),
@@ -135,6 +152,9 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
               const SizedBox(height: AppTheme.spacingXL),
               PrimaryButton(
                 isEnabled: _isValidated,
+                label: widget.flow.requireCoMaker
+                    ? 'Continue to Agreement Preview'
+                    : 'Continue to Email Verification',
                 onPressed: _isValidated
                     ? () {
                         widget.flow.draft.consent = _consent;
@@ -198,6 +218,37 @@ class TermsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Center(
+            child: Column(
+              children: [
+                Image.asset('assets/csucc-logo.png', width: 72, height: 72),
+                const SizedBox(height: AppTheme.spacingS),
+                const Text(
+                  'CSUCC EMPLOYEES AND RETIREES',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF183A24),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Text(
+                  'MULTI-PURPOSE COOPERATIVE (CSUCC ER MPC)',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF183A24),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Text(
+                  'City of Cabadbaran',
+                  style: TextStyle(color: Color(0xFF4A5568), fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppTheme.spacingL),
           const Text(
             'TERMS AND CONDITIONS',
             style: TextStyle(
@@ -333,6 +384,54 @@ class TermsCard extends StatelessWidget {
   }
 }
 
+class PromissoryNoteCard extends StatelessWidget {
+  const PromissoryNoteCard({super.key, required this.snapshot});
+
+  final LoanAgreementSnapshot snapshot;
+
+  static String textFor(LoanAgreementSnapshot snapshot) =>
+      'I promise to pay to the order of CSUCC Employees and Retirees '
+      'Multi-Purpose Cooperative (CSUCC ER MPC) the amount of '
+      '${LoanCalculatorService.formatCurrency(snapshot.amount)}, plus '
+      'monthly interest of '
+      '${LoanCalculatorService.formatPercentage(snapshot.computation.interestRate, compact: true)}.\n\n'
+      'I authorize the Cashier of Caraga State University Cabadbaran City '
+      '(CSUCC) to deduct the loan installment from my salary. I further '
+      'agree to pay monthly amortization through postdated checks (PDC) '
+      'when required, based on my capacity to pay and not from my net '
+      'take-home pay.';
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(24),
+    decoration: BoxDecoration(
+      color: AppTheme.cardWhite,
+      borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
+      boxShadow: AppTheme.cardShadow,
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'PROMISSORY NOTE',
+          style: TextStyle(
+            color: Color(0xFF183A24),
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(height: AppTheme.spacingM),
+        Text(
+          textFor(snapshot),
+          style: TextStyle(color: Color(0xFF4A5568), fontSize: 13, height: 1.5),
+        ),
+      ],
+    ),
+  );
+}
+
 class AgreementCheckbox extends StatelessWidget {
   final String label;
   final bool value;
@@ -383,9 +482,15 @@ class AgreementCheckbox extends StatelessWidget {
 
 class PrimaryButton extends StatelessWidget {
   final bool isEnabled;
+  final String label;
   final VoidCallback? onPressed;
 
-  const PrimaryButton({super.key, required this.isEnabled, this.onPressed});
+  const PrimaryButton({
+    super.key,
+    required this.isEnabled,
+    required this.label,
+    this.onPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -404,8 +509,8 @@ class PrimaryButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        child: const Text(
-          'Send OTP to Continue',
+        child: Text(
+          label,
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),

@@ -37,6 +37,10 @@ class LoanDocumentUploadService {
           'p_tenure_months': tenureMonths,
           'p_terms_accepted': consent.termsAccepted,
           'p_information_certified': consent.informationCertified,
+          'p_promissory_note_accepted': consent.promissoryNoteAccepted,
+          'p_promissory_note_version':
+              LoanConsentSubmission.promissoryNoteVersion,
+          'p_promissory_note_text': consent.promissoryNoteText,
           'p_terms_version': LoanConsentSubmission.termsVersion,
           'p_witness_names': consent.normalizedWitnessNames,
         },
@@ -85,6 +89,7 @@ class LoanDocumentUploadService {
                       .isNotEmpty) &&
           kinds.contains('payslip') &&
           kinds.contains('validId') &&
+          kinds.contains('employerCertification') &&
           (amount <= collateralRequiredAbove || kinds.contains('collateral'))) {
         await commit(
           saved

@@ -7,6 +7,7 @@ import 'responsive.dart';
 import 'app_bottom_navigation_bar.dart';
 import 'services/supabase_service.dart';
 import 'services/database_service.dart';
+import 'quickaccesssetupscreen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -125,7 +126,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                           ],
                           const SizedBox(height: AppTheme.spacingL),
-                          const SettingsMenuCard(),
+                          SettingsMenuCard(
+                            onQuickAccess: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => QuickAccessSetupScreen(
+                                    isSettingsMode: true,
+                                    onCompleted: () {
+                                      if (mounted) {
+                                        Navigator.of(context).pop();
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Quick access settings updated.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                           const SizedBox(height: AppTheme.spacingL),
                           SignOutButton(),
                         ],
@@ -433,17 +458,20 @@ class _EditPersonalInformationDialogState
     try {
       final updated = await DatabaseService().updateOwnMemberInfo(
         userId: widget.member['user_id'] as String,
+        memberRecordId: widget.member['id'] as String,
         firstName: _changes['first_name'],
         lastName: _changes['last_name'],
         phone: _changes['phone'],
         address: _changes['address'],
       );
       if (mounted) Navigator.of(context).pop(updated);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = 'Could not save your changes. Please try again.';
+        _error = error is StateError
+            ? error.message.toString()
+            : 'Could not save your changes. Please check your connection and try again.';
       });
     }
   }
@@ -608,24 +636,9 @@ class ProfileInfoRow extends StatelessWidget {
 }
 
 class SettingsMenuCard extends StatelessWidget {
-  const SettingsMenuCard({super.key});
+  const SettingsMenuCard({super.key, required this.onQuickAccess});
 
-  void _showAvailability(BuildContext context, String title, String message) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        scrollable: true,
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
+  final VoidCallback onQuickAccess;
 
   @override
   Widget build(BuildContext context) {
@@ -638,30 +651,9 @@ class SettingsMenuCard extends StatelessWidget {
       child: Column(
         children: [
           SettingsMenuItem(
-            icon: Icons.notifications_none,
-            title: 'Notification Preferences',
-            onTap: () => _showAvailability(
-              context,
-              'Notification Preferences',
-              'Notification preferences are currently unavailable in the app.',
-            ),
-          ),
-          const Divider(color: AppTheme.divider, height: 1, indent: 56),
-          SettingsMenuItem(
             icon: Icons.fingerprint,
             title: 'Change PIN / Biometric',
-            onTap: () {},
-          ),
-          const Divider(color: AppTheme.divider, height: 1, indent: 56),
-          SettingsMenuItem(
-            icon: Icons.description,
-            title: 'Download Loan Statement',
-            onTap: () => _showAvailability(
-              context,
-              'Download Loan Statement',
-              'Loan statement downloads are currently unavailable in the app. '
-                  'Contact the cooperative office to request a statement.',
-            ),
+            onTap: onQuickAccess,
           ),
         ],
       ),

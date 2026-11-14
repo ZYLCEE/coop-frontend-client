@@ -1,28 +1,32 @@
 import 'dart:typed_data';
 
 const legacyCollateralRequiredAbove = 200000.0;
-const demoCollateralMinimum = 200000.0;
 
-enum LoanDocumentKind { payslip, validId, collateral, supporting }
+enum LoanDocumentKind {
+  payslip,
+  validId,
+  collateral,
+  employerCertification,
+  supporting,
+}
 
 enum DocumentSource { camera, gallery, files }
 
 extension LoanDocumentLabels on LoanDocumentKind {
-  bool isVisibleFor({required double amount, required bool participantsDemo}) =>
-      !participantsDemo ||
-      this != LoanDocumentKind.collateral ||
-      amount >= demoCollateralMinimum;
+  bool isVisibleFor({
+    required double amount,
+    double collateralRequiredAbove = legacyCollateralRequiredAbove,
+  }) =>
+      this != LoanDocumentKind.collateral || amount > collateralRequiredAbove;
 
   bool isRequiredFor({
     required double amount,
     required double collateralRequiredAbove,
-    bool participantsDemo = false,
   }) => switch (this) {
     LoanDocumentKind.payslip || LoanDocumentKind.validId => true,
     LoanDocumentKind.collateral =>
-      participantsDemo
-          ? isVisibleFor(amount: amount, participantsDemo: true)
-          : amount > collateralRequiredAbove,
+      amount > collateralRequiredAbove,
+    LoanDocumentKind.employerCertification => true,
     LoanDocumentKind.supporting => false,
   };
 
@@ -30,7 +34,8 @@ extension LoanDocumentLabels on LoanDocumentKind {
     LoanDocumentKind.payslip => 'Pay Slip',
     LoanDocumentKind.validId => 'Valid Identification',
     LoanDocumentKind.collateral => 'Collateral Document',
-    LoanDocumentKind.supporting => 'Other Supporting Documents',
+    LoanDocumentKind.employerCertification => 'Employer Certification',
+    LoanDocumentKind.supporting => 'Other Supporting Document',
   };
 }
 
@@ -137,6 +142,9 @@ void validateLoanDocuments(
     throw StateError('Please attach your latest payslip.');
   if (!kinds.contains(LoanDocumentKind.validId))
     throw StateError('Please attach a valid identification document.');
+  if (!kinds.contains(LoanDocumentKind.employerCertification)) {
+    throw StateError('Please attach the Employer Certification.');
+  }
   if (amount > legacyCollateralRequiredAbove &&
       !kinds.contains(LoanDocumentKind.collateral)) {
     throw StateError(

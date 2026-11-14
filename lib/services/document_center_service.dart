@@ -53,6 +53,32 @@ class DocumentCenterService {
       await client.rpc('member_application_corrections') as List,
     );
     final roots = results[0];
+    final returnedApplicationReferences = roots
+        .where((root) {
+          final application = root['loan_applications'] as Map?;
+          final status = application?['status']?.toString().toLowerCase();
+          return status == 'returned' || status == 'returned_for_requirements';
+        })
+        .map((root) {
+          final application = root['loan_applications'] as Map?;
+          return application?['application_id']?.toString();
+        })
+        .whereType<String>()
+        .toSet();
+    // The corrections RPC can contain an old return event after the loan has
+    // advanced. Only show a correction action while the current application
+    // status is still returned.
+    corrections.removeWhere(
+      (correction) => !returnedApplicationReferences.contains(
+        correction['applicationId']?.toString(),
+      ),
+    );
+    // The RPC returns affectedKinds; the screen's upload controls use
+    // missingKinds. Normalize the response here so returned applications
+    // actually show the requested upload actions.
+    for (final correction in corrections) {
+      correction['missingKinds'] ??= correction['affectedKinds'] ?? [];
+    }
     for (final root in roots) {
       final versions =
           results[1].where((row) => row['document_id'] == root['id']).toList()
@@ -98,7 +124,15 @@ class DocumentCenterService {
       16,
       (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
-    final path = '$owner/replacements/${root['id']}/$token.${file.extension}';
+    final application = root['loan_applications'] as Map? ?? const {};
+    final applicationReference = application['application_id'] as String?;
+    if (applicationReference == null || applicationReference.isEmpty) {
+      throw StateError('Refresh your documents and try the replacement again.');
+    }
+    // Keep the same owner/application folder layout as the original upload.
+    // Storage ownership policies commonly validate both of these path parts.
+    final path =
+        '$owner/$applicationReference/replacement_$token.${file.extension}';
     await client.storage
         .from('loan-documents')
         .uploadBinary(
@@ -174,7 +208,8 @@ class DocumentCenterService {
   ) async {
     final owner = client.auth.currentUser?.id;
     if (owner == null) throw StateError('Sign in before uploading a document.');
-    final path = '$owner/corrections/${requestId()}.${file.extension}';
+    final path =
+        '$owner/$applicationId/${file.kind.name}_${requestId()}.${file.extension}';
     await client.storage
         .from('loan-documents')
         .uploadBinary(

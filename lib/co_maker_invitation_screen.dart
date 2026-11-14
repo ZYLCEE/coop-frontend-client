@@ -289,7 +289,7 @@ class _BorrowerCoMakerInvitationScreenState
                   ),
                   child: _busy
                       ? const CircularProgressIndicator()
-                      : const Text('Send Co-Maker Invitation'),
+                      : const Text('Continue to Co-Maker Invitation'),
                 ),
               ],
             ],
@@ -390,34 +390,63 @@ class _CoMakerInvitationReviewScreenState
 
   Future<void> _reject() async {
     if (_busy) return;
+    final reasonController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Decline co-maker invitation?'),
-        content: const Text(
-          'Rejecting ends this invitation. The borrower will be notified and you will not be able to accept it afterward.',
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Decline co-maker invitation?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Tell the borrower why you are declining. They will receive this reason with the notification.',
+              ),
+              const SizedBox(height: AppTheme.spacingM),
+              TextField(
+                controller: reasonController,
+                maxLength: 500,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Reason for declining',
+                  hintText: 'Enter a brief reason',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: reasonController.text.trim().length < 3
+                  ? null
+                  : () => Navigator.pop(dialogContext, true),
+              style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
+              child: const Text('Reject Invitation'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
-            child: const Text('Reject Invitation'),
-          ),
-        ],
       ),
     );
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
     if (confirmed != true) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final result = await _invitationService().reject(widget.requestId);
+      final result = await _invitationService().reject(
+        widget.requestId,
+        reason: reason,
+      );
       if (!mounted) return;
       final notificationSent = result['notification_sent'] == true;
       final emailSent = result['email_sent'] == true;

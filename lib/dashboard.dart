@@ -23,7 +23,9 @@ class _DashboardState extends State<Dashboard> {
   final int _currentIndex = 0;
   final PageController _advertisementController = PageController();
   Timer? _advertisementTimer;
+  Timer? _notificationRefreshTimer;
   int _advertisementIndex = 0;
+  int _unreadNotificationCount = 0;
   final DatabaseService _dbService = DatabaseService();
 
   Map<String, dynamic>? _userData;
@@ -43,6 +45,12 @@ class _DashboardState extends State<Dashboard> {
   void initState() {
     super.initState();
     _loadData();
+    _loadUnreadNotificationCount();
+    _notificationRefreshTimer = Timer.periodic(const Duration(seconds: 30), (
+      _,
+    ) {
+      _loadUnreadNotificationCount();
+    });
     final applicationLink = Uri.base.queryParameters['application'];
     if (applicationLink != null &&
         RegExp(r'^[A-Za-z0-9_-]{1,100}$').hasMatch(applicationLink) &&
@@ -73,8 +81,31 @@ class _DashboardState extends State<Dashboard> {
   @override
   void dispose() {
     _advertisementTimer?.cancel();
+    _notificationRefreshTimer?.cancel();
     _advertisementController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadUnreadNotificationCount() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      if (mounted) setState(() => _unreadNotificationCount = 0);
+      return;
+    }
+    try {
+      final notifications = await _dbService.getNotifications(user.id);
+      if (!mounted ||
+          Supabase.instance.client.auth.currentUser?.id != user.id) {
+        return;
+      }
+      setState(() {
+        _unreadNotificationCount = notifications
+            .where((notification) => notification['read'] != true)
+            .length;
+      });
+    } catch (_) {
+      // Keep the last known badge count if a refresh is temporarily unavailable.
+    }
   }
 
   Future<void> _loadData() async {
@@ -274,7 +305,7 @@ class _DashboardState extends State<Dashboard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Good morning,',
+                      'Good Day!',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 14,
@@ -302,13 +333,14 @@ class _DashboardState extends State<Dashboard> {
                 child: Stack(
                   children: [
                     IconButton(
-                      onPressed: () {
-                        Navigator.push(
+                      onPressed: () async {
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) => const NotificationsScreen(),
                           ),
                         );
+                        if (mounted) _loadUnreadNotificationCount();
                       },
                       icon: const Icon(
                         Icons.notifications,
@@ -316,18 +348,34 @@ class _DashboardState extends State<Dashboard> {
                         size: 24,
                       ),
                     ),
-                    Positioned(
-                      top: 12,
-                      right: 12,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: _accentGold,
-                          shape: BoxShape.circle,
+                    if (_unreadNotificationCount > 0)
+                      Positioned(
+                        top: 2,
+                        right: 2,
+                        child: Container(
+                          constraints: const BoxConstraints(
+                            minWidth: 19,
+                            minHeight: 19,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 5),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: AppTheme.danger,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: _headerGreen, width: 1.5),
+                          ),
+                          child: Text(
+                            _unreadNotificationCount > 99
+                                ? '99+'
+                                : '$_unreadNotificationCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),

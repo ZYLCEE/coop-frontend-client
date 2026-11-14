@@ -2,12 +2,17 @@
 class LoanConsentSubmission {
   const LoanConsentSubmission({
     required this.termsAccepted,
+    required this.promissoryNoteAccepted,
+    required this.promissoryNoteText,
     required this.informationCertified,
     this.witnessNames = const [],
   });
 
   static const termsVersion = 'csucc-loan-terms-2026-11-12-v1';
+  static const promissoryNoteVersion = 'csucc-promissory-note-2026-11-14-v1';
   final bool termsAccepted;
+  final bool promissoryNoteAccepted;
+  final String promissoryNoteText;
   final bool informationCertified;
   final List<String> witnessNames;
 
@@ -17,10 +22,14 @@ class LoanConsentSubmission {
       .toList(growable: false);
 
   void validate() {
-    if (!termsAccepted || !informationCertified) {
+    if (!termsAccepted || !promissoryNoteAccepted || !informationCertified) {
       throw StateError(
-        'Accept the Terms and Conditions and certify your application information.',
+        'Accept the Terms and Conditions and Promissory Note, then certify your application information.',
       );
+    }
+    if (promissoryNoteText.trim().length < 20 ||
+        promissoryNoteText.length > 5000) {
+      throw StateError('The Promissory Note details are invalid.');
     }
     final names = normalizedWitnessNames;
     if (names.length > 2 ||

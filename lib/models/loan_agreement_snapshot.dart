@@ -34,7 +34,7 @@ class LoanAgreementSnapshot {
          for (final entry in draft.documents.entries)
            if (entry.key.isVisibleFor(
              amount: draft.amount,
-             participantsDemo: participantsDemo,
+             collateralRequiredAbove: draft.policy!.collateralRequiredAbove,
            ))
              entry.key: (
                name: entry.value.name,
@@ -66,13 +66,12 @@ class LoanAgreementSnapshot {
       LoanDocumentKind.values.where(
         (kind) => kind.isVisibleFor(
           amount: amount,
-          participantsDemo: participantsDemo,
+          collateralRequiredAbove: collateralRequiredAbove,
         ),
       );
 
   bool requiresDocument(LoanDocumentKind kind) => kind.isRequiredFor(
     amount: amount,
     collateralRequiredAbove: collateralRequiredAbove,
-    participantsDemo: participantsDemo,
   );
 }

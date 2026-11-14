@@ -29,6 +29,7 @@ class DatabaseService {
 
   Future<Map<String, dynamic>> updateOwnMemberInfo({
     required String userId,
+    required String memberRecordId,
     String? firstName,
     String? lastName,
     String? phone,
@@ -38,17 +39,29 @@ class DatabaseService {
       throw StateError('Sign in again to update your profile.');
     }
 
-    return _supabase
+    final updates = <String, dynamic>{
+      if (firstName != null) 'first_name': firstName,
+      if (lastName != null) 'last_name': lastName,
+      if (phone != null) 'phone': phone,
+      if (address != null) 'address': address,
+    };
+    if (updates.isEmpty) {
+      throw StateError('There are no profile changes to save.');
+    }
+
+    final updated = await _supabase
         .from('members')
-        .update({
-          if (firstName != null) 'first_name': firstName,
-          if (lastName != null) 'last_name': lastName,
-          if (phone != null) 'phone': phone,
-          if (address != null) 'address': address,
-        })
+        .update(updates)
+        .eq('id', memberRecordId)
         .eq('user_id', userId)
         .select()
-        .single();
+        .maybeSingle();
+    if (updated == null) {
+      throw StateError(
+        'No profile row was updated. Check that your member account is linked.',
+      );
+    }
+    return updated;
   }
 
   // Loan applications operations
@@ -111,6 +124,17 @@ class DatabaseService {
     final response = await _supabase.rpc('member_application_progress');
     if (response is! List) {
       throw StateError('Application progress returned an invalid response.');
+    }
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<List<Map<String, dynamic>>>
+  getMemberApplicationRejectionReasons() async {
+    final response = await _supabase.rpc(
+      'member_application_rejection_reasons',
+    );
+    if (response is! List) {
+      throw StateError('Application rejection reasons returned an invalid response.');
     }
     return List<Map<String, dynamic>>.from(response);
   }
