@@ -2,6 +2,7 @@ import 'loan_application_flow.dart';
 import 'widgets/loan_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'email_otp_verification_screen.dart';
 import 'models/loan_consent_submission.dart';
 import 'models/loan_agreement_snapshot.dart';
@@ -180,6 +181,7 @@ class _ReviewTermsScreenState extends State<ReviewTermsScreen> {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
+      actions: const [NotificationBellAction()],
       backgroundColor: AppTheme.cardWhite,
       elevation: 0,
       leading: IconButton(

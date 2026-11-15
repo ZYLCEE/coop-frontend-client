@@ -3,6 +3,7 @@ import 'widgets/loan_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'loan_calculator_service.dart';
 import 'documents_disbursement_screen.dart';
 import 'loan_participants_screen.dart';
@@ -253,6 +254,7 @@ class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
+      actions: const [NotificationBellAction()],
       backgroundColor: AppTheme.cardWhite,
       elevation: 0,
       leading: IconButton(

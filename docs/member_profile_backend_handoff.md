@@ -1,7 +1,7 @@
-# Read-only member Profile backend handoff
+# Member profile editing
 
-The mobile Profile displays the signed-in member record and directs members to the CSUCC cooperative office for corrections. The frontend removed its member self-update action.
+The mobile Profile screen allows a signed-in member to edit only their own first name, last name, phone number, and address. The app sends updates through `DatabaseService.updateOwnMemberInfo`, which checks the active user and filters the update by both the member row ID and `user_id`.
 
-The repository's Supabase migration 002 allows updates to a member's own row through an RLS policy. Where authenticated users also have UPDATE privileges, a member can still send a direct update to the members API. Migration 005 adds a separate cooperative admin update policy. That policy does not revoke the earlier self-update policy. Repository inspection found no separate member profile update Edge Function. The deployed grants and policies have not been verified.
+The backend must preserve the `Users can update own member data` row-level security policy (`auth.uid() = user_id`) and grant UPDATE only on `first_name`, `last_name`, `phone`, and `address`. Migration `20261115150000_restore_member_profile_self_update.sql` restores those column-level grants for the `authenticated` role. Do not grant table-level UPDATE or add email, Member ID, role, membership type, status, password, or other protected columns to the member app's update scope.
 
-The backend team should verify deployed grants, policies, and API routes, then restrict protected profile writes to authorized cooperative staff under CSUCC's approved workflow. Keep members' own-record read access and verify on staging that a direct write by an ordinary member is rejected while authorized staff can make approved corrections.
+The production grant was verified after applying the migration. Cooperative staff retain their existing protected admin update flow for other account changes.

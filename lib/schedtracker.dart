@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'app_bottom_navigation_bar.dart';
 import 'loan_calculator_service.dart';
 import 'services/database_service.dart';
@@ -204,7 +205,10 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
     if (_loading || _error != null || _loans.isEmpty) {
       return Scaffold(
         backgroundColor: AppTheme.background,
-        appBar: AppBar(title: const Text('Loan Details')),
+        appBar: AppBar(
+          title: const Text('Loan Details'),
+          actions: const [NotificationBellAction()],
+        ),
         body: Center(
           child: _loading
               ? const CircularProgressIndicator()
@@ -368,6 +372,7 @@ class LoanDetailsAppBar extends StatelessWidget {
             tooltip: 'Refresh loan details',
             icon: const Icon(Icons.refresh),
           ),
+          const NotificationBellAction(),
         ],
       ),
     );

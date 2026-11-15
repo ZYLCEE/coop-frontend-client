@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'bellicon.dart';
+import 'notification_bell_action.dart';
 import 'loan_calculator_service.dart';
 import 'loan_application_flow.dart';
 import 'models/loan_agreement_snapshot.dart';
@@ -714,6 +715,7 @@ class _AgreementPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: AppTheme.background,
     appBar: AppBar(
+      actions: const [NotificationBellAction()],
       backgroundColor: AppTheme.cardWhite,
       elevation: 0,
       leading: IconButton(

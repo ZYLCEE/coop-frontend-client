@@ -2,6 +2,7 @@ import 'loan_application_flow.dart';
 import 'widgets/loan_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'application_summary_screen.dart';
 import 'loan_calculator_service.dart';
 import 'models/loan_document.dart';
@@ -175,11 +176,10 @@ class _DocumentsDisbursementScreenState
         : widget.loanAmount;
   }
 
-  bool _isVisible(LoanDocumentKind kind) =>
-      kind.isVisibleFor(
-        amount: _amount,
-        collateralRequiredAbove: widget.collateralRequiredAbove,
-      );
+  bool _isVisible(LoanDocumentKind kind) => kind.isVisibleFor(
+    amount: _amount,
+    collateralRequiredAbove: widget.collateralRequiredAbove,
+  );
 
   bool _isRequired(LoanDocumentKind kind) => kind.isRequiredFor(
     amount: _amount,
@@ -371,6 +371,7 @@ class _DocumentsDisbursementScreenState
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
+      actions: const [NotificationBellAction()],
       backgroundColor: AppTheme.cardWhite,
       elevation: 0,
       leading: IconButton(

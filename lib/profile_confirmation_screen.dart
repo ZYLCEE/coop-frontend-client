@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'loan_application_flow.dart';
 import 'member_information_card.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'loan_calculator_screen.dart';
 import 'loan_calculator_service.dart';
 import 'loan_application_mode.dart';
@@ -124,6 +125,7 @@ class _ProfileConfirmationScreenState extends State<ProfileConfirmationScreen> {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
+      actions: const [NotificationBellAction()],
       backgroundColor: AppTheme.cardWhite,
       elevation: 0,
       leading: IconButton(

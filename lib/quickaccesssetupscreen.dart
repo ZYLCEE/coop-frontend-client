@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'dashboard.dart';
 import 'security/quick_access_controller.dart';
 import 'security/quick_access_service.dart';
@@ -198,14 +199,14 @@ class _QuickAccessSetupScreenState extends State<QuickAccessSetupScreen> {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          actions: widget.isSettingsMode
-              ? null
-              : [
-                  TextButton(
-                    onPressed: _busy || !_canSetup ? null : _skip,
-                    child: const Text('Skip'),
-                  ),
-                ],
+          actions: [
+            if (widget.isSettingsMode) const NotificationBellAction(),
+            if (!widget.isSettingsMode)
+              TextButton(
+                onPressed: _busy || !_canSetup ? null : _skip,
+                child: const Text('Skip'),
+              ),
+          ],
         ),
         body: SafeArea(
           child: SingleChildScrollView(

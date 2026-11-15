@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'application_service.dart';
 import 'services/supabase_service.dart';
 import 'services/database_service.dart';
@@ -413,6 +414,7 @@ class _EmailOtpVerificationScreenState
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
+      actions: const [NotificationBellAction()],
       backgroundColor: AppTheme.cardWhite,
       elevation: 0,
       leading: IconButton(

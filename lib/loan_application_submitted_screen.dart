@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'dashboard.dart';
 import 'application_service.dart';
 
@@ -57,6 +58,7 @@ class LoanApplicationSubmittedScreen extends StatelessWidget {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
+      actions: const [NotificationBellAction()],
       backgroundColor: AppTheme.cardWhite,
       elevation: 0,
       title: const Text(

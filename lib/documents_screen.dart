@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'models/loan_document.dart';
 import 'services/document_center_service.dart';
 import 'services/document_picker_service.dart';
@@ -206,9 +207,19 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         : review?['status'] == 'needs_replacement'
         ? 'Needs replacement'
         : 'To review';
+    final applicationStatus = application['status']
+        ?.toString()
+        .trim()
+        .toLowerCase()
+        .replaceAll('_', ' ');
     final canReplace =
         review?['status'] == 'needs_replacement' &&
-        ['pending', 'under review', 'returned'].contains(application['status']);
+        [
+          'pending',
+          'under review',
+          'returned',
+          'returned for requirements',
+        ].contains(applicationStatus);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -340,7 +351,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     // A returned file can still exist in the member's documents. Use the
     // return event's affectedKinds to expose its replacement action here,
     // instead of only showing upload buttons for absent documents.
-    final requestedKinds = List<String>.from(item['affectedKinds'] ?? const []);
+    final requestedKinds = List<String>.from(
+      item['affectedKinds'] ?? item['missingKinds'] ?? const [],
+    );
 
     return Card(
       child: Padding(
@@ -462,6 +475,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         appBar: AppBar(
           title: const Text('Documents'),
           actions: [
+            const NotificationBellAction(),
             IconButton(
               tooltip: 'Refresh documents',
               onPressed: busy || loading ? null : load,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'responsive.dart';
 import 'app_bottom_navigation_bar.dart';
 import 'services/supabase_service.dart';
@@ -176,15 +177,22 @@ class ProfileAppBar extends StatelessWidget {
         vertical: AppTheme.spacingM,
       ),
       decoration: const BoxDecoration(color: AppTheme.cardWhite),
-      child: const Center(
-        child: Text(
-          'Profile',
-          style: TextStyle(
-            color: AppTheme.darkText,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
+      child: Row(
+        children: [
+          const Expanded(
+            child: Center(
+              child: Text(
+                'Profile',
+                style: TextStyle(
+                  color: AppTheme.darkText,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           ),
-        ),
+          const NotificationBellAction(),
+        ],
       ),
     );
   }

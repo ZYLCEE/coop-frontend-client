@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
 import 'app_bottom_navigation_bar.dart';
 import 'co_maker_invitation_screen.dart';
+import 'documents_screen.dart';
 import 'schedtracker.dart';
 import 'services/database_service.dart';
 
@@ -186,10 +187,18 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             requestId.isNotEmpty
         ? requestId
         : null;
-    final openLabel = applicationId != null
-        ? 'Open Loan Details'
-        : invitationRequestId != null
+    final notificationTitle = notification.title.toLowerCase();
+    final opensDocuments =
+        notificationTitle.contains('document replacement') ||
+        notificationTitle.contains('application returned') ||
+        notification.data?['action']?.toString() == 'document_reviewed' ||
+        notification.data?['action']?.toString() == 'application_returned';
+    final openLabel = invitationRequestId != null
         ? 'Review Invitation'
+        : applicationId != null && opensDocuments
+        ? 'Open Documents'
+        : applicationId != null
+        ? 'Open Loan Details'
         : null;
     final shouldOpen = await showDialog<bool>(
       context: context,
@@ -200,17 +209,21 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       ),
     );
     if (shouldOpen != true || !mounted) return;
-    if (applicationId != null) {
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => LoanDetailsScreen(applicationId: applicationId),
-        ),
-      );
-    } else if (invitationRequestId != null) {
+    if (invitationRequestId != null) {
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) =>
               CoMakerInvitationReviewScreen(requestId: invitationRequestId),
+        ),
+      );
+    } else if (applicationId != null && opensDocuments) {
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const DocumentsScreen()));
+    } else if (applicationId != null) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => LoanDetailsScreen(applicationId: applicationId),
         ),
       );
     }
@@ -288,7 +301,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                       ),
                     ),
             ),
-            AppBottomNavigationBar(currentIndex: 3, parentContext: context),
+            AppBottomNavigationBar(currentIndex: -1, parentContext: context),
           ],
         ),
       ),

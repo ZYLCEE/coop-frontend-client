@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'app_bottom_navigation_bar.dart';
 import 'profile_confirmation_screen.dart';
 import 'responsive.dart';
@@ -280,17 +281,19 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
         horizontal: Responsive.horizontalPadding(context),
         vertical: Responsive.verticalPadding(context),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            'Loans',
-            style: TextStyle(
-              color: const Color(0xFF183A24),
-              fontSize: Responsive.headingSize(context),
-              fontWeight: FontWeight.w700,
+          Expanded(
+            child: Text(
+              'Loans',
+              style: TextStyle(
+                color: const Color(0xFF183A24),
+                fontSize: Responsive.headingSize(context),
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
+          const NotificationBellAction(),
         ],
       ),
     );

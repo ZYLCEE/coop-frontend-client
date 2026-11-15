@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'services/member_activity_service.dart';
 
 typedef ActiveLogLoader =
@@ -214,6 +215,7 @@ class _ActiveLogsScreenState extends State<ActiveLogsScreen>
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
+        actions: const [NotificationBellAction(color: Colors.white)],
         title: const Text('Active Logs'),
         backgroundColor: AppTheme.primaryGreen,
         foregroundColor: Colors.white,

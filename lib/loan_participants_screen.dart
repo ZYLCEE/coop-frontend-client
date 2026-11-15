@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'documents_disbursement_screen.dart';
 import 'loan_application_flow.dart';
 import 'models/loan_document.dart';
@@ -52,7 +53,10 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
       return;
     }
     final participants = _participants;
-    final name = participants.coMakerNameInput.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final name = participants.coMakerNameInput.trim().replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    );
     final borrowerId = normalizeParticipantMemberId(
       widget.flow.draft.applicant?['member_id']?.toString() ?? '',
     );
@@ -185,6 +189,7 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
+        actions: const [NotificationBellAction()],
         backgroundColor: AppTheme.cardWhite,
         elevation: 0,
         leading: IconButton(
@@ -234,7 +239,9 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                     (value) => setState(() {
                       participants.coMakerNameInput = value;
                       final selected = participants.coMaker;
-                      if (selected != null && value.trim().toLowerCase() != selected.name.trim().toLowerCase()) {
+                      if (selected != null &&
+                          value.trim().toLowerCase() !=
+                              selected.name.trim().toLowerCase()) {
                         participants.coMaker = null;
                         participants.relationship = '';
                         participants.coMakerIdDocument = null;
@@ -246,11 +253,16 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                     enabled: !_loading,
                     error: _lookupError,
                     validator: (value) {
-                      final name = (value ?? '').trim().replaceAll(RegExp(r'\s+'), ' ');
+                      final name = (value ?? '').trim().replaceAll(
+                        RegExp(r'\s+'),
+                        ' ',
+                      );
                       if (name.isEmpty) return 'Enter the co-maker’s name.';
-                      if (name.split(' ').length < 2) return 'Enter the co-maker’s first and last name.';
+                      if (name.split(' ').length < 2)
+                        return 'Enter the co-maker’s first and last name.';
                       if (candidate == null ||
-                          candidate.name.trim().toLowerCase() != name.toLowerCase() ||
+                          candidate.name.trim().toLowerCase() !=
+                              name.toLowerCase() ||
                           (!widget.flow.participantsDemo &&
                               !candidate.isVerifiedMember) ||
                           (widget.flow.participantsDemo && !candidate.isDemo)) {

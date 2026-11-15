@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 
 class AboutCooperativeScreen extends StatelessWidget {
   const AboutCooperativeScreen({super.key});
@@ -9,6 +10,7 @@ class AboutCooperativeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
+        actions: const [NotificationBellAction()],
         backgroundColor: AppTheme.cardWhite,
         elevation: 0,
         leading: IconButton(

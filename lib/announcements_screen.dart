@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 
 /// The view and its underlying RLS return only published, due announcements.
 class AnnouncementsScreen extends StatefulWidget {
@@ -177,6 +178,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: AppTheme.background,
     appBar: AppBar(
+      actions: const [NotificationBellAction(color: Colors.white)],
       title: const Text('Announcements'),
       backgroundColor: AppTheme.primaryGreen,
       foregroundColor: Colors.white,

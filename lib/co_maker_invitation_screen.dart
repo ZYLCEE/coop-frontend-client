@@ -4,6 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_theme.dart';
+import 'notification_bell_action.dart';
 import 'dashboard.dart';
 import 'email_otp_verification_screen.dart';
 import 'application_service.dart';
@@ -201,6 +202,7 @@ class _BorrowerCoMakerInvitationScreenState
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
+        actions: const [NotificationBellAction()],
         backgroundColor: AppTheme.cardWhite,
         elevation: 0,
         title: const Text('Agreement Preview', style: AppTheme.titleBold),
@@ -335,6 +337,13 @@ class _CoMakerInvitationReviewScreenState
   }
 
   Future<void> _loadRequest() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+        _request = null;
+      });
+    }
     try {
       final request = await _invitationService().getRequest(widget.requestId);
       final currentUserId = Supabase.instance.client.auth.currentUser?.id;
@@ -476,12 +485,15 @@ class _CoMakerInvitationReviewScreenState
   Widget build(BuildContext context) {
     final request = _request;
     final details = request?['loan_details'];
+    final status = request?['status']?.toString().trim().toLowerCase();
+    final canRespond = status == 'pending' || status == 'otp_pending';
     final loanDetails = details is Map
         ? Map<String, dynamic>.from(details)
         : const <String, dynamic>{};
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
+        actions: const [NotificationBellAction()],
         backgroundColor: AppTheme.cardWhite,
         elevation: 0,
         title: const Text('Co-Maker Invitation', style: AppTheme.titleBold),
@@ -489,7 +501,28 @@ class _CoMakerInvitationReviewScreenState
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : request == null
-          ? Center(child: Text(_error ?? 'Invitation unavailable.'))
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(AppTheme.spacingL),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.info_outline, size: 36),
+                    const SizedBox(height: AppTheme.spacingM),
+                    Text(
+                      _error ?? 'Invitation details could not be loaded.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppTheme.spacingM),
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : _loadRequest,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Try again'),
+                    ),
+                  ],
+                ),
+              ),
+            )
           : SafeArea(
               child: SingleChildScrollView(
                 padding: EdgeInsets.all(Responsive.cardPadding(context)),
@@ -549,7 +582,7 @@ class _CoMakerInvitationReviewScreenState
                       'Review the figures carefully. Accepting records your consent to be a co-maker for this proposed application. The cooperative still needs to review the loan; this is not an approval.',
                       style: AppTheme.bodyRegular,
                     ),
-                    if (request['status'] == 'pending') ...[
+                    if (canRespond) ...[
                       CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
                         controlAffinity: ListTileControlAffinity.leading,
@@ -560,6 +593,14 @@ class _CoMakerInvitationReviewScreenState
                           'I reviewed these loan details and want to respond to this invitation.',
                         ),
                       ),
+                      if (status == 'otp_pending')
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: AppTheme.spacingS),
+                          child: Text(
+                            'Email verification has not been completed. You can continue to request a code or decline the invitation.',
+                            style: AppTheme.bodyRegular,
+                          ),
+                        ),
                       if (_error != null)
                         Text(
                           _error!,
@@ -724,6 +765,7 @@ class _CoMakerAcceptanceOtpScreenState
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: AppTheme.background,
     appBar: AppBar(
+      actions: const [NotificationBellAction()],
       backgroundColor: AppTheme.cardWhite,
       elevation: 0,
       title: const Text('Verify Co-Maker Consent', style: AppTheme.titleBold),
