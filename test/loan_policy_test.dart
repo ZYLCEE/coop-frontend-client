@@ -169,7 +169,14 @@ void main() {
         serviceFeePercent: 0.5,
       );
       expect(result.interestRate, 2);
-      expect(result.totalInterest, 2000);
+      expect(result.totalInterest, lessThan(2000));
+      expect(result.amortizationSchedule.first.interest, 200);
+      expect(
+        result.amortizationSchedule[1].interest,
+        lessThan(result.amortizationSchedule.first.interest),
+      );
+      expect(result.amortizationSchedule.last.remainingPrincipal, 0);
+      expect(result.totalRepayment, result.principal + result.totalInterest);
       expect(result.processingFee, 150);
       expect(result.retentionFee, 50);
     },
@@ -185,11 +192,14 @@ void main() {
           loanType: LoanType.regular,
           baseInterestRatePercent: 1.55,
         );
-        expect(result.totalInterest, closeTo(155 * months, 0.000001));
+        expect(result.amortizationSchedule, hasLength(months));
+        expect(result.amortizationSchedule.first.interest, 155);
+        expect(result.totalInterest, lessThan(155 * months));
+        expect(result.amortizationSchedule.last.remainingPrincipal, 0);
         expect(result.paymentDates, hasLength(months));
         expect(
           LoanCalculatorService.formatPercentage(result.interestRate),
-          '1.55% / month flat',
+          '1.55% / month diminishing balance',
         );
         expect(
           LoanCalculatorService.formatPercentage(
@@ -199,7 +209,10 @@ void main() {
           '1.55%/mo',
         );
       }
-      expect(LoanCalculatorService.formatPercentage(2), '2% / month flat');
+      expect(
+        LoanCalculatorService.formatPercentage(2),
+        '2% / month diminishing balance',
+      );
     },
   );
 

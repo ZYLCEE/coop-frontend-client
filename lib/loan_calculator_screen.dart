@@ -712,6 +712,14 @@ class LiveBreakdownCard extends StatelessWidget {
                 '-${LoanCalculatorService.formatCurrency(computation.retentionFee)}',
             isWhite: true,
           ),
+          const SizedBox(height: 12),
+          BreakdownRow(
+            label:
+                'Loan Insurance (LPPI ${LoanCalculatorService.formatFeePercentage(computation.loanInsuranceFactorPercent)} one-time)',
+            value:
+                '-${LoanCalculatorService.formatCurrency(computation.loanInsurancePremium)}',
+            isWhite: true,
+          ),
           const SizedBox(height: 16),
           const Divider(color: Color(0xFF4A7A5A), thickness: 1),
           const SizedBox(height: 16),
@@ -724,12 +732,20 @@ class LiveBreakdownCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           BreakdownRow(
-            label: 'Monthly Amortization',
+            label: 'First Month Payment',
             value: LoanCalculatorService.formatCurrency(
               computation.monthlyAmortization,
             ),
             isWhite: true,
             isBold: true,
+          ),
+          const SizedBox(height: 8),
+          BreakdownRow(
+            label: 'Total Repayment',
+            value: LoanCalculatorService.formatCurrency(
+              computation.totalRepayment,
+            ),
+            isWhite: true,
           ),
         ],
       ),
@@ -825,7 +841,7 @@ class PaymentScheduleCard extends StatelessWidget {
                 return PaymentScheduleItem(
                   month: index + 1,
                   date: computation.paymentDates[index],
-                  amount: computation.monthlyAmortization,
+                  period: computation.amortizationSchedule[index],
                 );
               },
             ),
@@ -839,13 +855,13 @@ class PaymentScheduleCard extends StatelessWidget {
 class PaymentScheduleItem extends StatelessWidget {
   final int month;
   final DateTime date;
-  final double amount;
+  final LoanAmortizationPeriod period;
 
   const PaymentScheduleItem({
     super.key,
     required this.month,
     required this.date,
-    required this.amount,
+    required this.period,
   });
 
   @override
@@ -854,36 +870,50 @@ class PaymentScheduleItem extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: AppTheme.spacingM),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 40,
-            child: Text(
-              'Month $month',
-              style: const TextStyle(
-                color: Color(0xFF7D8A82),
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+          Row(
+            children: [
+              SizedBox(
+                width: 58,
+                child: Text(
+                  'Month $month',
+                  style: const TextStyle(
+                    color: Color(0xFF7D8A82),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              dateFormat.format(date),
-              style: const TextStyle(
-                color: Color(0xFF183A24),
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  dateFormat.format(date),
+                  style: const TextStyle(
+                    color: Color(0xFF183A24),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
-            ),
+              Text(
+                LoanCalculatorService.formatCurrency(period.payment),
+                style: const TextStyle(
+                  color: Color(0xFF183A24),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
-          Text(
-            LoanCalculatorService.formatCurrency(amount),
-            style: const TextStyle(
-              color: Color(0xFF183A24),
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+          Padding(
+            padding: const EdgeInsets.only(left: 66, top: 3),
+            child: Text(
+              'Principal ${LoanCalculatorService.formatCurrency(period.principal)}  ·  '
+              'Interest ${LoanCalculatorService.formatCurrency(period.interest)}  ·  '
+              'Balance ${LoanCalculatorService.formatCurrency(period.remainingPrincipal)}',
+              style: const TextStyle(color: Color(0xFF7D8A82), fontSize: 11),
             ),
           ),
         ],

@@ -909,7 +909,9 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
               status,
             );
             final amount = _asDouble(loan['amount']);
-            final monthly = _asDouble(loan['monthly_payment']);
+            final monthly =
+                details.recordedMonthlyPayment ??
+                _asDouble(loan['monthly_payment']);
             final tenure = _asInt(loan['tenure_months']);
             final hasSchedule = details.amortizationSchedule.isNotEmpty;
             final nextDue = details.amortizationSchedule
@@ -1129,18 +1131,24 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
         'review_attention',
         'returned_for_requirements',
       }.contains(workflowStage)) {
-        return 0;
+        return 1;
       }
 
       switch (status) {
+        case 'approved':
+        case 'released':
+        case 'overdue':
+          return 0;
         case 'pending':
         case 'under review':
         case 'returned':
-          return 0;
+          return 1;
         case 'rejected':
           return 2;
+        case 'completed':
+          return 3;
         default:
-          return 1;
+          return 2;
       }
     }
 
@@ -1380,7 +1388,7 @@ class _LoansScreenState extends State<LoansScreen> with WidgetsBindingObserver {
           children: [
             Expanded(
               child: _buildInfoRow(
-                'Monthly Payment',
+                'First Month Payment',
                 '₱${monthly.toStringAsFixed(2)}',
               ),
             ),

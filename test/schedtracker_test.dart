@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:coop_frontend/loan_calculator_service.dart';
 import 'package:coop_frontend/schedtracker.dart';
@@ -125,6 +126,56 @@ void main() {
       expect(loan.remainingMonths, 2);
     },
   );
+
+  test('a partial installment shows the remaining balance in the schedule', () {
+    final loan = Loan.fromDatabase({
+      'application_id': 'LA-2026-PARTIAL',
+      'loan_type': 'Regular',
+      'amount': 12000,
+      'status': 'released',
+      'date_released': '2026-01-31',
+      'tenure_months': 3,
+      'monthly_payment': 5166.67,
+      'loan_payments': [
+        {
+          'payment_amount': 2500,
+          'payment_status': 'posted',
+          'payment_date': '2026-02-20',
+        },
+      ],
+    });
+
+    final firstInstallment = loan.amortizationSchedule.first;
+    expect(firstInstallment.status, PaymentStatus.current);
+    expect(firstInstallment.paidAmount, 2500);
+    expect(firstInstallment.remainingAmount, 2666.67);
+    expect(loan.amortizationSchedule[1].paidAmount, 0);
+    expect(loan.amortizationSchedule[1].remainingAmount, 5166.67);
+  });
+
+  testWidgets('amortization row displays a partial month balance', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TimelineItem(
+            payment: PaymentSchedule(
+              month: 1,
+              date: 'Feb 20, 2026',
+              amount: '₱5,166.67',
+              paidAmount: 2500,
+              remainingAmount: 2666.67,
+              status: PaymentStatus.current,
+            ),
+            showConnector: false,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('Balance this month ₱2666.67'), findsOneWidget);
+  });
 
   test(
     'Does not fabricate a repayment schedule when saved loan terms are absent',

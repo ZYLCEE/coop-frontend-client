@@ -24,6 +24,7 @@ class _ApplicationSummaryScreenState extends State<ApplicationSummaryScreen> {
   late final _snapshot = LoanAgreementSnapshot.fromDraft(
     widget.flow.draft,
     participantsDemo: widget.flow.participantsDemo,
+    previewOnly: widget.flow.previewOnly,
   );
 
   @override
@@ -319,6 +320,7 @@ class LoanDetailsCard extends StatelessWidget {
             ('Processing Fee', computation.processingFee),
             ('Notarial Fee', computation.notarialFee),
             ('Retention Fee', computation.retentionFee),
+            ('Loan Insurance (LPPI)', computation.loanInsurancePremium),
           ]) ...[
             _buildInfoRow(fee.$1, LoanCalculatorService.formatCurrency(fee.$2)),
             const Divider(color: Color(0xFFE6E6E6), thickness: 1),
@@ -328,7 +330,8 @@ class LoanDetailsCard extends StatelessWidget {
             LoanCalculatorService.formatCurrency(
               computation.processingFee +
                   computation.notarialFee +
-                  computation.retentionFee,
+                  computation.retentionFee +
+                  computation.loanInsurancePremium,
             ),
           ),
           const Divider(color: Color(0xFFE6E6E6), thickness: 1),
@@ -338,7 +341,7 @@ class LoanDetailsCard extends StatelessWidget {
           ),
           const Divider(color: Color(0xFFE6E6E6), thickness: 1),
           _buildInfoRow(
-            'Monthly Amortization',
+            'First Month Payment',
             LoanCalculatorService.formatCurrency(
               computation.monthlyAmortization,
             ),

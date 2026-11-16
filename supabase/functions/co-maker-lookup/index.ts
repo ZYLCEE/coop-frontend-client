@@ -23,9 +23,16 @@ const notFound = () =>
 
 function normalizeMemberName(value: unknown): { firstName: string; lastName: string } | null {
   if (typeof value !== 'string') return null
-  const parts = value.trim().replace(/\s+/g, ' ').split(' ')
-  if (parts.length < 2 || value.trim().length > 200) return null
-  return { firstName: parts[0], lastName: parts.slice(1).join(' ') }
+  const normalized = value.trim().replace(/\s+/g, ' ')
+  const parts = normalized.split(' ')
+  if (parts.length < 2 || normalized.length > 200) return null
+
+  // Account creation stores every name part except the final surname in first_name.
+  return { firstName: parts.slice(0, -1).join(' '), lastName: parts.at(-1)! }
+}
+
+function escapeLikeTerm(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&')
 }
 
 function isActiveMemberUser(user: {
@@ -62,7 +69,9 @@ serve(async (request) => {
   }
 
   const memberName = normalizeMemberName((body as JsonObject).name)
-  if (!memberName) return respond({ error: 'Enter the member’s first and last name.' }, 400)
+  if (!memberName) {
+    return respond({ error: 'Enter the full member name.' }, 400)
+  }
 
   const admin = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -101,16 +110,53 @@ serve(async (request) => {
       return respond({ error: 'Too many member lookups. Please try again in 15 minutes.' }, 429)
     }
 
-    const { data: candidates, error: candidateError } = await admin
-      .from('members')
-      .select('id, user_id, member_id, first_name, last_name, status')
-      .ilike('first_name', memberName.firstName)
-      .ilike('last_name', memberName.lastName)
-      .limit(2)
+    let candidates: Array<{
+      id: string
+      user_id: string | null
+      member_id: string | null
+      first_name: string | null
+      last_name: string | null
+      status: string | null
+    }> = []
+    // Check the current account-creation name shape first, plus the older
+    // first-token/remaining-surname shape for accounts created before it.
+    const nameParts = memberName!.firstName.split(' ')
+    const nameShapes = [
+      memberName!,
+      {
+        firstName: nameParts[0],
+        lastName: [nameParts.slice(1).join(' '), memberName!.lastName].filter(Boolean).join(' '),
+      },
+    ].filter((shape, index, shapes) =>
+      shapes.findIndex((other) =>
+        other.firstName.toLocaleLowerCase() === shape.firstName.toLocaleLowerCase() &&
+        other.lastName.toLocaleLowerCase() === shape.lastName.toLocaleLowerCase()
+      ) === index
+    )
 
-    if (candidateError) return unavailable()
-    if (!candidates || candidates.length === 0) return notFound()
-    if (candidates.length !== 1) return unavailable()
+    const lookupResults = await Promise.all(nameShapes.map((shape) =>
+      admin
+        .from('members')
+        .select('id, user_id, member_id, first_name, last_name, status')
+        .eq('status', 'active')
+        .not('user_id', 'is', null)
+        .ilike('first_name', escapeLikeTerm(shape.firstName))
+        .ilike('last_name', escapeLikeTerm(shape.lastName))
+        .limit(2)
+    ))
+
+    if (lookupResults.some(({ error }) => error)) return unavailable()
+    const candidateById = new Map(
+      lookupResults.flatMap(({ data }) => (data ?? []).map((candidate) => [candidate.id, candidate] as const)),
+    )
+    candidates = [...candidateById.values()]
+
+    if (candidates.length === 0) return notFound()
+    if (candidates.length > 1) {
+      return respond({
+        error: 'More than one active member has that name. Ask an administrator to resolve the duplicate member records before continuing.',
+      }, 409)
+    }
 
     const candidate = candidates[0]
     if (

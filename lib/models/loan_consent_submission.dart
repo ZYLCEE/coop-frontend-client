@@ -32,13 +32,14 @@ class LoanConsentSubmission {
       throw StateError('The Promissory Note details are invalid.');
     }
     final names = normalizedWitnessNames;
-    if (names.length > 2 ||
-        names.any(
-          (name) =>
-              name.length > 160 || RegExp(r'[\x00-\x1f\x7f]').hasMatch(name),
-        )) {
+    if (names.length != 2) {
+      throw StateError('Please enter both witness names before proceeding.');
+    }
+    if (names.any(
+      (name) => name.length > 160 || RegExp(r'[\x00-\x1f\x7f]').hasMatch(name),
+    )) {
       throw StateError(
-        'Enter up to two valid witness names, each at most 160 characters.',
+        'Enter two valid witness names, each at most 160 characters.',
       );
     }
     if (names.map((name) => name.toLowerCase()).toSet().length !=

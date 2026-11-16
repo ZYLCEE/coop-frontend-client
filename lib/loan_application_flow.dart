@@ -38,7 +38,8 @@ class LoanApplicationFlow {
     SupabaseClient client, {
     this.participantsDemo = loanParticipantsDemoBuild,
     this.previewOnly = false,
-    this.requireCoMaker = false,
+    bool requireCoMaker = false,
+    this.requireWitnesses = false,
   }) : assert(!participantsDemo || !previewOnly),
        _client = client,
        _userId = client.auth.currentUser?.id,
@@ -56,9 +57,28 @@ class LoanApplicationFlow {
 
   final bool participantsDemo;
   final bool previewOnly;
-  final bool requireCoMaker;
+  final bool requireWitnesses;
+  bool get requireCoMaker => _draft?.requireCoMaker ?? false;
   bool get hasParticipantsStep =>
-      participantsDemo || previewOnly || requireCoMaker;
+      participantsDemo || previewOnly || requireWitnesses || requireCoMaker;
+
+  /// Returns false when the saved membership type is missing or unsupported.
+  bool configureCoMakerRequirement(String? membershipType) {
+    final normalized = membershipType?.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    );
+    if (normalized == 'regular' || normalized == 'regular member') {
+      _draft?.requireCoMaker = true;
+      return true;
+    }
+    if (normalized == 'associate' || normalized == 'associate member') {
+      _draft?.requireCoMaker = true;
+      return true;
+    }
+    return false;
+  }
+
   final SupabaseClient _client;
   final String? _userId;
   LoanApplicationDraft? _draft;

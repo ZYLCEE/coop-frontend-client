@@ -77,14 +77,18 @@ class LoanSubmissionReadiness {
         const {3, 6, 12, 24}.contains(snapshot.tenure) &&
         calculation.principal == snapshot.amount &&
         calculation.paymentDates.length == snapshot.tenure &&
+        calculation.amortizationSchedule.length == snapshot.tenure &&
         calculation.interestRate == policy.baseInterestRatePercent &&
         [
           calculation.totalInterest,
           calculation.processingFee,
           calculation.notarialFee,
           calculation.retentionFee,
+          calculation.loanInsurancePremium,
+          calculation.loanInsuranceFactorPercent,
           calculation.netTakeHome,
           calculation.monthlyAmortization,
+          calculation.totalRepayment,
         ].every((amount) => amount.isFinite);
 
     final missing = snapshot.visibleDocumentKinds
@@ -109,14 +113,16 @@ class LoanSubmissionReadiness {
         .toList();
     final documentsComplete = missing.isEmpty && invalid.isEmpty;
     final hasCoMaker =
-        snapshot.coMaker != null &&
-        snapshot.coMaker!.memberId.trim().isNotEmpty &&
-        snapshot.relationship.isNotEmpty;
+        !snapshot.requireCoMaker ||
+        (snapshot.coMaker != null &&
+            snapshot.coMaker!.memberId.trim().isNotEmpty &&
+            snapshot.relationship.isNotEmpty);
     final borrowerConfirmed = activeSession && borrowerDemoConfirmed;
     final coMakerConfirmed =
-        borrowerConfirmed &&
-        hasCoMaker &&
-        coMakerDecision == DemoCoMakerDecision.confirmed;
+        !snapshot.requireCoMaker ||
+        (borrowerConfirmed &&
+            hasCoMaker &&
+            coMakerDecision == DemoCoMakerDecision.confirmed);
     final conflict =
         snapshot.participantsDemo ||
         snapshot.collateralRequiredAbove != legacyCollateralRequiredAbove;
@@ -162,14 +168,25 @@ class LoanSubmissionReadiness {
         ),
         _item(
           'Co-maker selection',
-          localPreview
+          !snapshot.requireCoMaker
+              ? LoanReadinessStatus.complete
+              : localPreview
               ? LoanReadinessStatus.pendingBackend
               : _completion(hasCoMaker),
+          snapshot.requireCoMaker ? null : 'The current workflow does not require a co-maker.',
         ),
-        _item('Co-maker eligibility', LoanReadinessStatus.pendingBackend),
+        _item(
+          'Co-maker eligibility',
+          snapshot.requireCoMaker
+              ? LoanReadinessStatus.pendingBackend
+              : LoanReadinessStatus.complete,
+          snapshot.requireCoMaker ? null : 'The current workflow does not require a co-maker.',
+        ),
         _item(
           'Co-Maker',
-          localPreview
+          !snapshot.requireCoMaker
+              ? LoanReadinessStatus.complete
+              : localPreview
               ? LoanReadinessStatus.pendingBackend
               : coMakerConfirmed
               ? LoanReadinessStatus.demoConsentRecorded
@@ -178,6 +195,7 @@ class LoanSubmissionReadiness {
                     hasCoMaker
               ? LoanReadinessStatus.declined
               : LoanReadinessStatus.incomplete,
+          snapshot.requireCoMaker ? null : 'The current workflow does not require a co-maker.',
         ),
         _item(
           'Authenticated consent and agreement version',

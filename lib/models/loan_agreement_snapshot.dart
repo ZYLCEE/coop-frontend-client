@@ -16,7 +16,9 @@ class LoanAgreementSnapshot {
   LoanAgreementSnapshot.fromDraft(
     LoanApplicationDraft draft, {
     this.participantsDemo = false,
-  }) : applicant = Map.unmodifiable(draft.applicant ?? const {}),
+    this.previewOnly = false,
+  }) : requireCoMaker = draft.requireCoMaker || participantsDemo || previewOnly,
+       applicant = Map.unmodifiable(draft.applicant ?? const {}),
        loanType = draft.loanType,
        applicationKind = draft.applicationKind,
        amount = draft.amount,
@@ -48,6 +50,8 @@ class LoanAgreementSnapshot {
   final LoanApplicationKind? applicationKind;
   final double amount;
   final bool participantsDemo;
+  final bool previewOnly;
+  final bool requireCoMaker;
   final int tenure;
   final LoanComputation computation;
   final List<DateTime> repaymentDates;

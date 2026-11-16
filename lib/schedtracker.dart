@@ -5,9 +5,11 @@ import 'app_bottom_navigation_bar.dart';
 import 'loan_calculator_service.dart';
 import 'services/database_service.dart';
 import 'package:intl/intl.dart';
+import 'payment_history_screen.dart';
 
 class Loan {
   final String id;
+  final String applicationUuid;
   final String loanType;
   final String principal;
   final String disbursementDate;
@@ -19,6 +21,7 @@ class Loan {
 
   Loan({
     required this.id,
+    this.applicationUuid = '',
     required this.loanType,
     required this.principal,
     required this.disbursementDate,
@@ -63,6 +66,9 @@ class Loan {
     final principal = double.tryParse('${row['amount'] ?? ''}') ?? 0;
     final monthly = double.tryParse('${row['monthly_payment'] ?? ''}');
     final tenure = int.tryParse('${row['tenure_months'] ?? ''}') ?? 0;
+    final interestRate = double.tryParse(
+      '${row['interest_rate_at_release'] ?? ''}',
+    );
     var actualPaid = 0.0;
     double? interestPaid = 0;
     for (final payment in postedLoanPayments(row)) {
@@ -81,12 +87,32 @@ class Loan {
 
     // Only build an amortization schedule from terms saved with this loan.
     // Older loans without those fields remain visible, but are not fabricated.
-    if (releasedDate != null && monthly != null && monthly > 0 && tenure > 0) {
+    if (releasedDate != null &&
+        tenure > 0 &&
+        ((monthly != null && monthly > 0) ||
+            (interestRate != null && interestRate >= 0 && principal > 0))) {
+      final diminishingSchedule = interestRate != null && interestRate >= 0
+          ? LoanCalculatorService.diminishingSchedule(
+              principal: principal,
+              months: tenure,
+              interestRatePercent: interestRate,
+            )
+          : null;
+      final totalPaidCents = (actualPaid * 100).round();
+      var scheduledBeforeCents = 0;
       for (var index = 0; index < tenure; index++) {
+        final installmentCents = diminishingSchedule == null
+            ? (monthly! * 100).round()
+            : (diminishingSchedule[index].payment * 100).round();
         final dueDate = _addCalendarMonths(releasedDate, index + 1);
+        final paidForInstallmentCents = (totalPaidCents - scheduledBeforeCents)
+            .clamp(0, installmentCents);
         final isCompleted =
             status == 'completed' ||
-            (actualPaid * 100).round() >= (monthly * (index + 1) * 100).round();
+            paidForInstallmentCents >= installmentCents;
+        final paidCents = status == 'completed'
+            ? installmentCents
+            : paidForInstallmentCents;
         final hasNext = schedule.every(
           (payment) => payment.status == PaymentStatus.completed,
         );
@@ -99,15 +125,25 @@ class Loan {
           PaymentSchedule(
             month: index + 1,
             date: DateFormat('MMM d, yyyy').format(dueDate),
-            amount: _formatCurrency(monthly),
+            amount: _formatCurrency(
+              diminishingSchedule == null
+                  ? monthly!
+                  : diminishingSchedule[index].payment,
+            ),
+            paidAmount: paidCents / 100,
+            remainingAmount: isCompleted
+                ? 0
+                : (installmentCents - paidForInstallmentCents) / 100,
             status: paymentStatus,
           ),
         );
+        scheduledBeforeCents += installmentCents;
       }
     }
 
     return Loan(
-      id: '${row['application_id'] ?? row['id']}',
+      id: (row['application_id'] ?? row['id']).toString(),
+      applicationUuid: (row['id'] ?? '').toString(),
       loanType: '${row['loan_type'] ?? 'Loan'}'.toUpperCase(),
       principal: _formatCurrency(principal),
       disbursementDate: releasedDate == null
@@ -116,7 +152,9 @@ class Loan {
       amortizationSchedule: schedule,
       status: status,
       actualAmountPaid: actualPaid,
-      recordedMonthlyPayment: monthly,
+      recordedMonthlyPayment: schedule.isNotEmpty
+          ? _parseCurrency(schedule.first.amount)
+          : monthly,
       interestPaid: interestPaid,
     );
   }
@@ -278,7 +316,7 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                         children: [
                           Expanded(
                             child: LoanInfoCard(
-                              label: 'Monthly Payment',
+                              label: 'First Month Payment',
                               amount: _loans[_currentPage].monthlyPayment,
                             ),
                           ),
@@ -308,6 +346,33 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                       ),
                     ),
                     const SizedBox(height: AppTheme.spacingL),
+                    OutlinedButton.icon(
+                      onPressed: _loans[_currentPage].applicationUuid.isEmpty
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => MemberLoanPaymentHistoryScreen(
+                                  loanApplicationUuid:
+                                      _loans[_currentPage].applicationUuid,
+                                  applicationId: _loans[_currentPage].id,
+                                  totalRepayment:
+                                      _loans[_currentPage]
+                                          .amortizationSchedule
+                                          .isEmpty
+                                      ? null
+                                      : _loans[_currentPage].totalRepayable,
+                                  monthlyInstallment: _loans[_currentPage]
+                                      .recordedMonthlyPayment,
+                                  loanCompleted:
+                                      _loans[_currentPage].status ==
+                                      'completed',
+                                ),
+                              ),
+                            ),
+                      icon: const Icon(Icons.history),
+                      label: const Text('History'),
+                    ),
+                    const SizedBox(height: AppTheme.spacingM),
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 300),
                       child: AmortizationScheduleCard(
@@ -752,12 +817,16 @@ class PaymentSchedule {
   final int month;
   final String date;
   final String amount;
+  final double paidAmount;
+  final double remainingAmount;
   final PaymentStatus status;
 
   PaymentSchedule({
     required this.month,
     required this.date,
     required this.amount,
+    required this.paidAmount,
+    required this.remainingAmount,
     required this.status,
   });
 }
@@ -892,17 +961,24 @@ class TimelineItem extends StatelessWidget {
   }
 
   Widget _buildAmount() {
+    final hasPartialBalance =
+        payment.paidAmount > 0 && payment.remainingAmount > 0;
     return Text(
-      payment.amount,
+      hasPartialBalance
+          ? _formatCurrency(payment.remainingAmount)
+          : payment.amount,
       style: TextStyle(
-        color: payment.status == PaymentStatus.completed
+        color: hasPartialBalance
+            ? AppTheme.accentGold
+            : payment.status == PaymentStatus.completed
             ? AppTheme.mutedGray
             : AppTheme.primaryText,
         fontSize: 14,
-        fontWeight: payment.status == PaymentStatus.current
+        fontWeight: hasPartialBalance || payment.status == PaymentStatus.current
             ? FontWeight.w700
             : FontWeight.w500,
-        decoration: payment.status == PaymentStatus.completed
+        decoration:
+            !hasPartialBalance && payment.status == PaymentStatus.completed
             ? TextDecoration.lineThrough
             : null,
       ),

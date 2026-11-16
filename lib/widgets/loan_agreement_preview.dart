@@ -64,7 +64,12 @@ class LoanParticipantReviewCard extends StatelessWidget {
         const SizedBox(height: AppTheme.spacingM),
         const Text('Co-Maker', style: AppTheme.bodyBold),
         if (coMaker == null)
-          const Text('No selection', style: AppTheme.bodyRegular)
+          Text(
+            snapshot.requireCoMaker
+                ? 'No selection'
+                : 'Not required by the current workflow',
+            style: AppTheme.bodyRegular,
+          )
         else ...[
           Text(
             '${coMaker.name} (${coMaker.memberId})',
@@ -174,6 +179,10 @@ class LoanAgreementPreview extends StatelessWidget {
             ('Processing fee', snapshot.computation.processingFee),
             ('Notarial fee', snapshot.computation.notarialFee),
             ('Retention fee', snapshot.computation.retentionFee),
+            (
+              'Loan insurance (LPPI)',
+              snapshot.computation.loanInsurancePremium,
+            ),
             ('Net take-home', snapshot.computation.netTakeHome),
           ])
             Text(
@@ -181,7 +190,7 @@ class LoanAgreementPreview extends StatelessWidget {
               style: AppTheme.bodyRegular,
             ),
           Text(
-            'Estimated monthly amortization: ${LoanCalculatorService.formatCurrency(snapshot.computation.monthlyAmortization)}',
+            'Estimated first-month payment (decreases as the balance falls): ${LoanCalculatorService.formatCurrency(snapshot.computation.monthlyAmortization)}',
             style: AppTheme.bodyRegular,
           ),
         ],
@@ -192,7 +201,7 @@ class LoanAgreementPreview extends StatelessWidget {
           title: 'Estimated Repayment Schedule',
           children: [
             Text(
-              'Total estimated repayment: ${LoanCalculatorService.formatCurrency(snapshot.computation.monthlyAmortization * snapshot.tenure)}',
+              'Total estimated repayment: ${LoanCalculatorService.formatCurrency(snapshot.computation.totalRepayment)}',
               style: AppTheme.bodyBold,
             ),
             const Text(
@@ -204,7 +213,7 @@ class LoanAgreementPreview extends StatelessWidget {
                 padding: const EdgeInsets.only(top: AppTheme.spacingS),
                 child: Text(
                   'Installment ${index + 1} · ${DateFormat.yMMMd().format(date)} · '
-                  '${LoanCalculatorService.formatCurrency(snapshot.computation.monthlyAmortization)}',
+                  '${LoanCalculatorService.formatCurrency(snapshot.computation.amortizationSchedule[index].payment)}',
                   style: AppTheme.bodyRegular,
                 ),
               ),

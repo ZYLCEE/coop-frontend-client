@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/loan_participant.dart';
@@ -67,17 +69,35 @@ class SupabaseLoanParticipantLookup implements LoanParticipantLookup {
       );
     } on FunctionException catch (exception) {
       final details = exception.details;
-      final message = details is Map ? details['error'] : null;
+      Object? decodedDetails = details;
+      if (details is String) {
+        try {
+          decodedDetails = jsonDecode(details);
+        } on FormatException {
+          decodedDetails = null;
+        }
+      }
+      final message = decodedDetails is Map ? decodedDetails['error'] : null;
       if (message is String && message.isNotEmpty) {
         throw LoanParticipantLookupException(message);
       }
       if (exception.status == 404) {
         throw const LoanParticipantLookupException(
-            'No active member was found for that name.',
+          'No active member was found. Check the full member name.',
+        );
+      }
+      if (exception.status == 409) {
+        throw const LoanParticipantLookupException(
+          "More than one active member has that name. Ask the cooperative to resolve the duplicate member records before continuing.",
+        );
+      }
+      if (exception.status == 429) {
+        throw const LoanParticipantLookupException(
+          'Too many lookup attempts. Please wait 15 minutes and try again.',
         );
       }
       throw const LoanParticipantLookupException(
-        'Member lookup is unavailable. Confirm the staging function is deployed.',
+        'Member lookup is temporarily unavailable. Please try again.',
       );
     }
     if (response.status != 200 || response.data is! Map) {

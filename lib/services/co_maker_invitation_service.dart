@@ -66,6 +66,11 @@ class CoMakerInvitationService {
         'retention_fee': LoanCalculatorService.formatCurrency(
           snapshot.computation.retentionFee,
         ),
+        'loan_insurance_factor_percent':
+            snapshot.computation.loanInsuranceFactorPercent,
+        'loan_insurance_premium': LoanCalculatorService.formatCurrency(
+          snapshot.computation.loanInsurancePremium,
+        ),
         'net_take_home': LoanCalculatorService.formatCurrency(
           snapshot.computation.netTakeHome,
         ),

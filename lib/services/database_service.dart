@@ -134,7 +134,9 @@ class DatabaseService {
       'member_application_rejection_reasons',
     );
     if (response is! List) {
-      throw StateError('Application rejection reasons returned an invalid response.');
+      throw StateError(
+        'Application rejection reasons returned an invalid response.',
+      );
     }
     return List<Map<String, dynamic>>.from(response);
   }
@@ -230,6 +232,14 @@ class DatabaseService {
         .order('payment_date', ascending: false);
     return response;
   }
+
+  Stream<List<Map<String, dynamic>>> watchMemberLoanPayments(
+    String loanApplicationUuid,
+  ) => _supabase
+      .from('loan_payments')
+      .stream(primaryKey: ['id'])
+      .eq('loan_application_id', loanApplicationUuid)
+      .order('payment_date', ascending: false);
 
   Future<void> createLoanPayment(Map<String, dynamic> data) async {
     await _supabase.from('loan_payments').insert(data);

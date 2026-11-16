@@ -579,20 +579,38 @@ void main() {
       await enterParticipantField(tester, 'Co-Maker Member Name', 'invalid');
       await tapText(tester, 'Look Up Demo Member');
       expect(find.textContaining('first and last name'), findsOneWidget);
-      await enterParticipantField(tester, 'Co-Maker Member Name', 'Demo Member Three');
+      await enterParticipantField(
+        tester,
+        'Co-Maker Member Name',
+        'Demo Member Three',
+      );
       await tapText(tester, 'Look Up Demo Member');
       expect(
         find.text('Choose a co-maker other than yourself.'),
         findsOneWidget,
       );
-      await enterParticipantField(tester, 'Co-Maker Member Name', 'Unknown Member');
+      await enterParticipantField(
+        tester,
+        'Co-Maker Member Name',
+        'Unknown Member',
+      );
       await tapText(tester, 'Look Up Demo Member');
       expect(find.textContaining('Demo member not found'), findsOneWidget);
-      await enterParticipantField(tester, 'Co-Maker Member Name', 'Demo Member Two');
+      await enterParticipantField(
+        tester,
+        'Co-Maker Member Name',
+        'Demo Member Two',
+      );
       await tapText(tester, 'Look Up Demo Member');
       expect(find.text('Demo Member Two'), findsOneWidget);
       expect(find.textContaining('Fictional demo record'), findsOneWidget);
       await selectRelationship(tester, 'Colleague');
+      await tapText(tester, 'Continue to Documents');
+      expect(
+        find.text('Please enter the witness name before proceeding.'),
+        findsNWidgets(2),
+      );
+      expect(find.byType(LoanParticipantsScreen), findsOneWidget);
       await enterParticipantField(tester, 'Witness 1', 'Demo Witness A');
       await enterParticipantField(tester, 'Witness 2', 'demo witness a');
       expect(
@@ -755,7 +773,11 @@ void main() {
       expect(participants, findsOneWidget);
       expect(draft.amount, 60000);
       expect(draft.documents, hasLength(2));
-      await enterParticipantField(tester, 'Co-Maker Member Name', 'Demo Member One');
+      await enterParticipantField(
+        tester,
+        'Co-Maker Member Name',
+        'Demo Member One',
+      );
       await tapText(tester, 'Look Up Demo Member');
       await selectRelationship(tester, 'Friend');
       navigator.pop();
@@ -1132,7 +1154,10 @@ void main() {
           tenureMonths: 12,
           consent: const LoanConsentSubmission(
             termsAccepted: true,
+            promissoryNoteAccepted: true,
+            promissoryNoteText: 'Confirmed loan promissory note terms.',
             informationCertified: true,
+            witnessNames: ['Witness One', 'Witness Two'],
           ),
           participantsDemo: true,
         ),
@@ -1147,7 +1172,10 @@ void main() {
           tenureMonths: 12,
           consent: const LoanConsentSubmission(
             termsAccepted: true,
+            promissoryNoteAccepted: true,
+            promissoryNoteText: 'Confirmed loan promissory note terms.',
             informationCertified: true,
+            witnessNames: ['Witness One', 'Witness Two'],
           ),
           participantsDemo: true,
         ),
@@ -1175,7 +1203,11 @@ void main() {
         home: LoanParticipantsScreen(flow: flow, lookup: _FailingLookup()),
       ),
     );
-    await enterParticipantField(tester, 'Co-Maker Member Name', 'Demo Member Two');
+    await enterParticipantField(
+      tester,
+      'Co-Maker Member Name',
+      'Demo Member Two',
+    );
     await tapText(tester, 'Look Up Demo Member');
     expect(
       find.text('Demo member lookup is unavailable. Try again.'),
@@ -1693,7 +1725,7 @@ void main() {
       await tapText(tester, 'Renewal');
       expect(flow.draft.applicationKind?.label, 'Renewal');
       await tapText(tester, '6mo');
-      expect(flow.draft.computation?.totalInterest, 5400);
+      expect(flow.draft.computation?.totalInterest, closeTo(3189.09, 0.01));
       expect(flow.draft.tenure, 6);
       Navigator.of(tester.element(calculator)).pop();
       await tester.pumpAndSettle();
@@ -1731,7 +1763,20 @@ void main() {
       );
       expect(flow.draft.tenure, 6);
       expect(flow.draft.applicationKind?.label, 'Renewal');
-      expect(requests.where((request) => request.method == 'POST'), isEmpty);
+      expect(
+        requests
+            .where((request) => request.method == 'POST')
+            .every(
+              (request) =>
+                  request.url.path.endsWith(
+                    '/rpc/member_application_progress',
+                  ) ||
+                  request.url.path.endsWith(
+                    '/rpc/member_application_rejection_reasons',
+                  ),
+            ),
+        isTrue,
+      );
 
       final oldDraft = flow.draft;
       await client.auth.signInWithPassword(
@@ -1744,7 +1789,9 @@ void main() {
       expect(oldDraft.documents, isEmpty);
       expect(find.byType(LoansScreen), findsOneWidget);
       expect(find.byType(ProfileConfirmationScreen), findsNothing);
-      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 51));
+      await tester.pump(const Duration(seconds: 7));
     },
   );
 }

@@ -23,8 +23,11 @@ class _ProfileConfirmationScreenState extends State<ProfileConfirmationScreen> {
     widget.loanType,
     Supabase.instance.client,
     requireCoMaker: !loanParticipantsDemoBuild,
+    requireWitnesses: !loanParticipantsDemoBuild,
   );
   Map<String, dynamic>? _loadedApplicant;
+  bool _membershipTypeConfigured = loanParticipantsDemoBuild;
+  String? _membershipTypeError;
   bool _attached = false;
 
   @override
@@ -74,13 +77,34 @@ class _ProfileConfirmationScreenState extends State<ProfileConfirmationScreen> {
               LiveMemberInformationCard(
                 snapshot: draft.applicant,
                 onLoaded: (member) {
-                  if (_flow.isActive) setState(() => _loadedApplicant = member);
+                  if (!_flow.isActive) return;
+                  final configured =
+                      loanParticipantsDemoBuild ||
+                      _flow.configureCoMakerRequirement(
+                        member['membership_type']?.toString(),
+                      );
+                  setState(() {
+                    _loadedApplicant = member;
+                    _membershipTypeConfigured = configured;
+                    _membershipTypeError = configured
+                        ? null
+                        : 'Your membership type is missing or unsupported. Contact the cooperative before starting a loan application.';
+                  });
                 },
               ),
               const SizedBox(height: AppTheme.spacingL),
+              if (_membershipTypeError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppTheme.spacingM),
+                  child: Text(
+                    _membershipTypeError!,
+                    style: const TextStyle(color: AppTheme.danger),
+                  ),
+                ),
               ConfirmationCard(
                 isConfirmed: draft.profileConfirmed,
-                onChanged: _loadedApplicant == null
+                onChanged:
+                    _loadedApplicant == null || !_membershipTypeConfigured
                     ? null
                     : (value) {
                         final applicant = draft.applicant ?? _loadedApplicant;
@@ -98,8 +122,8 @@ class _ProfileConfirmationScreenState extends State<ProfileConfirmationScreen> {
                 label: _flow.participantsDemo
                     ? 'Proceed to Loan Application'
                     : 'Proceed to Loan Calculator',
-                isEnabled: draft.profileConfirmed,
-                onPressed: !draft.profileConfirmed
+                isEnabled: draft.profileConfirmed && _membershipTypeConfigured,
+                onPressed: !draft.profileConfirmed || !_membershipTypeConfigured
                     ? null
                     : _flow.participantsDemo
                     ? () => _flow.push(
@@ -110,8 +134,12 @@ class _ProfileConfirmationScreenState extends State<ProfileConfirmationScreen> {
               ),
               if (!_flow.participantsDemo) ...[
                 const SizedBox(height: AppTheme.spacingS),
-                const Text(
-                  'Verify a co-maker, collect their consent, then submit your application for cooperative review.',
+                Text(
+                  !_membershipTypeConfigured
+                      ? 'Confirm your membership type before continuing.'
+                      : _flow.requireCoMaker
+                      ? 'Both Regular and Associate Members must verify a co-maker and collect their consent.'
+                      : 'Co-maker consent is required for both membership types. Witness names are also collected during the application.',
                   textAlign: TextAlign.center,
                   style: AppTheme.captionRegular,
                 ),

@@ -62,7 +62,7 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
     );
     if (name.split(' ').length < 2) {
       setState(() {
-        _lookupError = 'Enter the co-maker’s first and last name.';
+        _lookupError = 'Enter the full member name.';
       });
       return;
     }
@@ -146,12 +146,16 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
   void _continue() {
     if (_loading || !widget.flow.isActive) return;
     final selected = _participants.coMaker;
+    final requiresCoMaker =
+        widget.flow.requireCoMaker ||
+        widget.flow.participantsDemo ||
+        widget.flow.previewOnly;
     final selectedIsValid =
         selected != null &&
         (widget.flow.participantsDemo
             ? selected.isDemo
             : selected.isVerifiedMember);
-    if (!selectedIsValid) {
+    if (requiresCoMaker && !selectedIsValid) {
       setState(() {
         _lookupError = !widget.flow.participantsDemo
             ? 'A verified member lookup is required before continuing.'
@@ -162,6 +166,7 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
     final valid = _formKey.currentState!.validate();
     if (!valid) return;
     if (widget.flow.canUseLiveSubmission &&
+        widget.flow.requireCoMaker &&
         _participants.coMakerIdDocument == null) {
       setState(() => _documentError = 'Attach the co-maker ID document.');
       return;
@@ -181,9 +186,10 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
     }
     final participants = _participants;
     final candidate = participants.coMaker;
-    final borrowerId = normalizeParticipantMemberId(
-      widget.flow.draft.applicant?['member_id']?.toString() ?? '',
-    );
+    final showCoMaker =
+        widget.flow.requireCoMaker ||
+        widget.flow.participantsDemo ||
+        widget.flow.previewOnly;
     final firstWitness = participants.witnessOne.trim().toLowerCase();
     final secondWitness = participants.witnessTwo.trim().toLowerCase();
     return Scaffold(
@@ -228,173 +234,182 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                       ? 'Review the participant steps in this local draft.'
                       : widget.flow.participantsDemo
                       ? 'Identify one co-maker and up to two witnesses for this practice draft. Use fictional witness names.'
-                      : 'Verify an active co-maker member. They must be different from you and must accept the invitation before the loan is submitted.',
+                      : showCoMaker
+                      ? 'Regular and Associate Members must verify an active co-maker, who must accept the invitation before submission. Add two different witness names.'
+                      : 'A co-maker is required for both Regular and Associate Members. Add two different witness names.',
                   style: AppTheme.bodyRegular,
                 ),
                 const SizedBox(height: AppTheme.spacingL),
-                _card('Co-Maker', [
-                  _field(
-                    'Co-Maker Member Name',
-                    participants.coMakerNameInput,
-                    (value) => setState(() {
-                      participants.coMakerNameInput = value;
-                      final selected = participants.coMaker;
-                      if (selected != null &&
-                          value.trim().toLowerCase() !=
-                              selected.name.trim().toLowerCase()) {
-                        participants.coMaker = null;
-                        participants.relationship = '';
-                        participants.coMakerIdDocument = null;
-                        participants.coMakerIdDocumentPath = null;
-                        _documentError = null;
-                      }
-                      _lookupError = null;
-                    }),
-                    enabled: !_loading,
-                    error: _lookupError,
-                    validator: (value) {
-                      final name = (value ?? '').trim().replaceAll(
-                        RegExp(r'\s+'),
-                        ' ',
-                      );
-                      if (name.isEmpty) return 'Enter the co-maker’s name.';
-                      if (name.split(' ').length < 2)
-                        return 'Enter the co-maker’s first and last name.';
-                      if (candidate == null ||
-                          candidate.name.trim().toLowerCase() !=
-                              name.toLowerCase() ||
-                          (!widget.flow.participantsDemo &&
-                              !candidate.isVerifiedMember) ||
-                          (widget.flow.participantsDemo && !candidate.isDemo)) {
-                        return 'Look up this name and select a registered member.';
-                      }
-                      return null;
-                    },
-                  ),
-                  TextButton(
-                    onPressed: _loading ? null : _findCoMaker,
-                    child: Text(
-                      _loading
-                          ? !widget.flow.participantsDemo
-                                ? 'Searching member name…'
-                                : 'Looking up demo member…'
-                          : !widget.flow.participantsDemo
-                          ? 'Verify Co-maker Member Name'
-                          : 'Look Up Demo Member',
+                if (showCoMaker)
+                  _card('Co-Maker', [
+                    _field(
+                      'Co-Maker Member Name',
+                      participants.coMakerNameInput,
+                      (value) => setState(() {
+                        participants.coMakerNameInput = value;
+                        final selected = participants.coMaker;
+                        if (selected != null &&
+                            value.trim().toLowerCase() !=
+                                selected.name.trim().toLowerCase()) {
+                          participants.coMaker = null;
+                          participants.relationship = '';
+                          participants.coMakerIdDocument = null;
+                          participants.coMakerIdDocumentPath = null;
+                          _documentError = null;
+                        }
+                        _lookupError = null;
+                      }),
+                      enabled: !_loading,
+                      error: _lookupError,
+                      validator: (value) {
+                        final name = (value ?? '').trim().replaceAll(
+                          RegExp(r'\s+'),
+                          ' ',
+                        );
+                        if (name.isEmpty) return 'Enter the co-maker name.';
+                        final matchesCandidate =
+                            candidate != null &&
+                            candidate.name.trim().toLowerCase() ==
+                                name.toLowerCase();
+                        if (!matchesCandidate ||
+                            (!widget.flow.participantsDemo &&
+                                !candidate.isVerifiedMember) ||
+                            (widget.flow.participantsDemo &&
+                                !candidate.isDemo)) {
+                          return 'Look up this name and select a registered member.';
+                        }
+                        return null;
+                      },
                     ),
-                  ),
-                  if (widget.flow.participantsDemo)
-                    const Text(
-                      'Example demo names: Demo Member One and Demo Member Two.',
-                      style: AppTheme.captionRegular,
+                    TextButton(
+                      onPressed: _loading ? null : _findCoMaker,
+                      child: Text(
+                        _loading
+                            ? !widget.flow.participantsDemo
+                                  ? 'Searching member name…'
+                                  : 'Looking up demo member…'
+                            : !widget.flow.participantsDemo
+                            ? 'Verify Co-maker Member Name'
+                            : 'Look Up Demo Member',
+                      ),
                     ),
-                  if (candidate != null) ...[
+                    if (widget.flow.participantsDemo)
+                      const Text(
+                        'Example demo names: Demo Member One and Demo Member Two.',
+                        style: AppTheme.captionRegular,
+                      ),
+                    if (candidate != null) ...[
+                      const SizedBox(height: AppTheme.spacingM),
+                      Text(candidate.name, style: AppTheme.bodyBold),
+                      Text(
+                        !widget.flow.participantsDemo
+                            ? 'Active member account verified. Co-maker eligibility rules are still pending.'
+                            : 'Fictional demo record. This is not a real member verification.',
+                        style: AppTheme.captionRegular,
+                      ),
+                    ],
+                    if (!widget.flow.participantsDemo &&
+                        !widget.flow.previewOnly) ...[
+                      const SizedBox(height: AppTheme.spacingM),
+                      InputDecorator(
+                        decoration: InputDecoration(
+                          labelText: 'Co-maker ID Document',
+                          errorText: _documentError,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.badge_outlined),
+                            const SizedBox(width: AppTheme.spacingS),
+                            Expanded(
+                              child: Text(
+                                participants.coMakerIdDocument?.name ??
+                                    'PDF or image, up to 10 MB',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.bodyRegular,
+                              ),
+                            ),
+                            TextButton(
+                              onPressed:
+                                  _pickingCoMakerDocument ||
+                                      candidate?.isVerifiedMember != true ||
+                                      !widget.flow.canUseLiveSubmission
+                                  ? null
+                                  : _pickCoMakerIdDocument,
+                              child: Text(
+                                _pickingCoMakerDocument
+                                    ? 'Selecting…'
+                                    : participants.coMakerIdDocument == null
+                                    ? 'Add Document'
+                                    : 'Replace',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: AppTheme.spacingS),
+                      Text(
+                        candidate?.isVerifiedMember == true
+                            ? 'Attach a clear PDF or image of the co-maker ID, up to 10 MB.'
+                            : 'Verify an active co-maker before adding their ID document.',
+                        style: AppTheme.captionRegular,
+                      ),
+                    ],
                     const SizedBox(height: AppTheme.spacingM),
-                    Text(candidate.name, style: AppTheme.bodyBold),
-                    Text(
-                      !widget.flow.participantsDemo
-                          ? 'Active member account verified. Co-maker eligibility rules are still pending.'
-                          : 'Fictional demo record. This is not a real member verification.',
-                      style: AppTheme.captionRegular,
-                    ),
-                  ],
-                  if (!widget.flow.participantsDemo &&
-                      !widget.flow.previewOnly) ...[
-                    const SizedBox(height: AppTheme.spacingM),
-                    InputDecorator(
+                    DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      value: participants.relationship.isEmpty
+                          ? null
+                          : participants.relationship,
                       decoration: InputDecoration(
-                        labelText: 'Co-maker ID Document',
-                        errorText: _documentError,
+                        labelText: 'Relationship to borrower',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.badge_outlined),
-                          const SizedBox(width: AppTheme.spacingS),
-                          Expanded(
-                            child: Text(
-                              participants.coMakerIdDocument?.name ??
-                                  'PDF or image, up to 10 MB',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTheme.bodyRegular,
-                            ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppTheme.primaryGreen,
                           ),
-                          TextButton(
-                            onPressed:
-                                _pickingCoMakerDocument ||
-                                    candidate?.isVerifiedMember != true ||
-                                    !widget.flow.canUseLiveSubmission
-                                ? null
-                                : _pickCoMakerIdDocument,
-                            child: Text(
-                              _pickingCoMakerDocument
-                                  ? 'Selecting…'
-                                  : participants.coMakerIdDocument == null
-                                  ? 'Add Document'
-                                  : 'Replace',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: AppTheme.spacingS),
-                    Text(
-                      candidate?.isVerifiedMember == true
-                          ? 'Attach a clear PDF or image of the co-maker ID, up to 10 MB.'
-                          : 'Verify an active co-maker before adding their ID document.',
-                      style: AppTheme.captionRegular,
-                    ),
-                  ],
-                  const SizedBox(height: AppTheme.spacingM),
-                  DropdownButtonFormField<String>(
-                    isExpanded: true,
-                    value: participants.relationship.isEmpty
-                        ? null
-                        : participants.relationship,
-                    decoration: InputDecoration(
-                      labelText: 'Relationship to borrower',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppTheme.primaryGreen,
                         ),
                       ),
+                      items:
+                          const [
+                            'Spouse',
+                            'Parent',
+                            'Child',
+                            'Sibling',
+                            'Other relative',
+                            'Friend',
+                            'Colleague',
+                            'Co-worker',
+                            'Other',
+                          ].map((relationship) {
+                            return DropdownMenuItem(
+                              value: relationship,
+                              child: Text(relationship),
+                            );
+                          }).toList(),
+                      onChanged: (relationship) => setState(() {
+                        participants.relationship = relationship ?? '';
+                      }),
+                      validator: (relationship) => (relationship ?? '').isEmpty
+                          ? 'Select the relationship to the borrower.'
+                          : null,
                     ),
-                    items:
-                        const [
-                          'Spouse',
-                          'Parent',
-                          'Child',
-                          'Sibling',
-                          'Other relative',
-                          'Friend',
-                          'Colleague',
-                          'Co-worker',
-                          'Other',
-                        ].map((relationship) {
-                          return DropdownMenuItem(
-                            value: relationship,
-                            child: Text(relationship),
-                          );
-                        }).toList(),
-                    onChanged: (relationship) => setState(() {
-                      participants.relationship = relationship ?? '';
-                    }),
-                    validator: (relationship) => (relationship ?? '').isEmpty
-                        ? 'Select the relationship to the borrower.'
-                        : null,
-                  ),
-                ]),
+                  ]),
                 const SizedBox(height: AppTheme.spacingL),
                 _card('Witnesses', [
+                  if (!showCoMaker)
+                    const Text(
+                      'A co-maker is required for both Regular and Associate Members.',
+                      style: AppTheme.captionRegular,
+                    ),
                   const Text(
-                    'These slots are provisional. Witness eligibility and attestation procedures are pending cooperative confirmation.',
+                    'Enter two different witness names. They will be recorded with your OTP-confirmed agreement.',
                     style: AppTheme.captionRegular,
                   ),
                   const SizedBox(height: AppTheme.spacingM),
@@ -402,12 +417,18 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                     'Witness 1',
                     participants.witnessOne,
                     (value) => setState(() => participants.witnessOne = value),
+                    validator: (value) => (value ?? '').trim().isEmpty
+                        ? 'Please enter the witness name before proceeding.'
+                        : null,
                   ),
                   const SizedBox(height: AppTheme.spacingM),
                   _field(
                     'Witness 2',
                     participants.witnessTwo,
                     (value) => setState(() => participants.witnessTwo = value),
+                    validator: (value) => (value ?? '').trim().isEmpty
+                        ? 'Please enter the witness name before proceeding.'
+                        : null,
                   ),
                   if (firstWitness.isNotEmpty && firstWitness == secondWitness)
                     const Padding(
@@ -422,10 +443,12 @@ class _LoanParticipantsScreenState extends State<LoanParticipantsScreen> {
                 _card('Participant Summary', [
                   Text(
                     candidate == null
-                        ? 'Co-Maker: Not Verified'
+                        ? showCoMaker
+                              ? 'Co-Maker: Not Verified'
+                              : 'Co-Maker: Not Required'
                         : widget.flow.participantsDemo
                         ? 'Co-Maker: Selected for demo'
-                        : 'Co-Maker: ${candidate.name} (${candidate.memberId})',
+                        : 'Co-Maker: ${candidate.name}',
                   ),
                   Text(
                     firstWitness.isEmpty

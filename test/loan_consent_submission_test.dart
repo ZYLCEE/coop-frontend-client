@@ -14,14 +14,22 @@ void main() {
       for (final consent in [
         const LoanConsentSubmission(
           termsAccepted: false,
+          promissoryNoteAccepted: true,
+          promissoryNoteText: 'Confirmed loan promissory note terms.',
           informationCertified: true,
+          witnessNames: ['One', 'Two'],
         ),
         const LoanConsentSubmission(
           termsAccepted: true,
+          promissoryNoteAccepted: true,
+          promissoryNoteText: 'Confirmed loan promissory note terms.',
           informationCertified: false,
+          witnessNames: ['One', 'Two'],
         ),
         const LoanConsentSubmission(
           termsAccepted: true,
+          promissoryNoteAccepted: true,
+          promissoryNoteText: 'Confirmed loan promissory note terms.',
           informationCertified: true,
           witnessNames: ['Same', ' same '],
         ),
@@ -31,10 +39,21 @@ void main() {
       const consent = LoanConsentSubmission(
         termsAccepted: true,
         informationCertified: true,
-        witnessNames: [' Witness One ', '', 'Witness Two'],
+        promissoryNoteAccepted: true,
+        promissoryNoteText: 'Confirmed loan promissory note terms.',
+        witnessNames: [' Witness One ', 'Witness Two'],
       );
       consent.validate();
       expect(consent.normalizedWitnessNames, ['Witness One', 'Witness Two']);
+      expect(
+        const LoanConsentSubmission(
+          termsAccepted: true,
+          promissoryNoteAccepted: true,
+          promissoryNoteText: 'Confirmed loan promissory note terms.',
+          informationCertified: true,
+        ).validate,
+        throwsStateError,
+      );
     },
   );
 
@@ -89,7 +108,11 @@ void main() {
                 : null;
           } else if (request.uri.path.endsWith('/loan_documents')) {
             data = [
-              for (final kind in ['validId', 'payslip'])
+              for (final kind in [
+                'validId',
+                'payslip',
+                'employerCertification',
+              ])
                 {
                   'kind': kind,
                   'storage_path': '$owner/LA-2026-123456/$kind.pdf',
@@ -128,6 +151,7 @@ void main() {
           for (final kind in [
             LoanDocumentKind.validId,
             LoanDocumentKind.payslip,
+            LoanDocumentKind.employerCertification,
           ]) {
             documents.add(
               SelectedLoanDocument.fromBytes(
@@ -145,6 +169,8 @@ void main() {
             tenureMonths: 12,
             consent: const LoanConsentSubmission(
               termsAccepted: true,
+              promissoryNoteAccepted: true,
+              promissoryNoteText: 'Confirmed loan promissory note terms.',
               informationCertified: true,
               witnessNames: [' Witness One ', 'Witness Two'],
             ),
@@ -160,7 +186,7 @@ void main() {
             calls.single['p_terms_version'],
             LoanConsentSubmission.termsVersion,
           );
-          expect(calls.single['p_documents'], hasLength(2));
+          expect(calls.single['p_documents'], hasLength(3));
         } finally {
           await client.dispose();
           await server.close(force: true);
